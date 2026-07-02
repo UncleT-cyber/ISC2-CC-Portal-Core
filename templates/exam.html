@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>Simulated Practice Matrix</h2>
+        <span class="badge" style="background-color: #21262d;">Item {{ current_index + 1 }} of {{ total_questions }}</span>
+    </div>
+    <p style="color: #8b949e; font-size: 0.9em;">🎯 Focus Domain: <strong>{{ question.domain }}</strong></p>
+    <hr style="border-color: #30363d;">
+    
+    <form method="POST">
+        <h3>{{ question.question }}</h3>
+        
+        <div style="margin: 20px 0;">
+            {% for option in question.options %}
+                <label style="display: block; background: #21262d; padding: 12px; margin-bottom: 10px; border-radius: 6px; cursor: pointer; border: 1px solid #30363d;">
+                    <input type="radio" name="answer" value="{{ option }}" required style="margin-right: 10px;"> 
+                    {{ option }}
+                </label>
+            {% endfor %}
+        </div>
+        
+        <div style="background: #161b22; padding: 15px; border: 1px dashed #30363d; border-radius: 6px; margin-bottom: 20px;">
+            <label style="display:block; margin-bottom: 8px; font-weight: bold; color: #79c0ff;">🔮 Assess Your Confidence Level:</label>
+            <div style="display: flex; gap: 15px;">
+                <label><input type="radio" name="confidence" value="High" checked> 🔥 High (Lock it in)</label>
+                <label><input type="radio" name="confidence" value="Medium"> 📈 Medium (Educated guess)</label>
+                <label><input type="radio" name="confidence" value="Low"> 🎲 Low (Pure gamble)</label>
+            </div>
+        </div>
+
+        <button type="submit" style="width: 100%; font-size: 1.1em;">Lock In Assessment Choice</button>
+    </form>
+</div>
+{% endblock %}

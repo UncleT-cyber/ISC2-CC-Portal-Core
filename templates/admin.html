@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>📥 Bulk Question Instant Parser</h2>
+    <p>Paste your study mock question block right here. The engine automatically separates options and keys.</p>
+    
+    {% if success %}
+        <div class="badge badge-success" style="display:block; margin-bottom:15px; text-align:center; padding:10px;">⚡ Question Parsed and Committed Successfully!</div>
+    {% endif %}
+    {% if error %}
+        <div class="badge badge-danger" style="display:block; margin-bottom:15px; text-align:center; padding:10px;">❌ Parser Error: {{ error }}</div>
+    {% endif %}
+
+    <form method="POST">
+        <label>Target Domain Target:</label>
+        <select name="domain" required style="width: 100%; background: #0d1117; color: white; border: 1px solid #30363d;">
+            {% for d in domains %}
+                <option value="{{ d }}">{{ d }}</option>
+            {% endfor %}
+        </select>
+
+        <label style="margin-top: 15px; display: block;">Paste Raw Text Block:</label>
+        <textarea name="bulk_text" rows="8" placeholder="Which item is a component of CIA?&#10;A. Traceability&#10;B. Confidentiality&#10;C. Safety&#10;D. Authorization&#10;Answer: B" required style="width: 100%; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; font-family: monospace;"></textarea>
+        
+        <p style="font-size: 0.85em; color: #8b949e; margin-top: 5px;">⚠️ <em>Ensure your block contains exactly 4 lines starting with A, B, C, D and one validation line starting with 'Answer: [Key]'.</em></p>
+
+        <button type="submit" style="width: 100%; margin-top: 15px;">Run Auto-Ingestion</button>
+    </form>
+</div>
+{% endblock %}

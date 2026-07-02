@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Secure Candidate Access</h2>
+<form method="POST">
+    <label>Username (Any name):</label>
+    <input type="text" name="username" required autocomplete="off">
+    <label>Passphrase:</label>
+    <input type="password" name="password" placeholder="Hint: 1234" required>
+    <button type="submit">Access System</button>
+</form>
+{% endblock %}

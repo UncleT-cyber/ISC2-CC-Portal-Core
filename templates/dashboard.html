@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display: flex; gap: 20px; flex-wrap: wrap;">
+    
+    <div class="card" style="flex: 1; min-width: 300px;">
+        <h3>🎖️ Operator Status</h3>
+        <p>Code Name: <strong style="color: #79c0ff;">{{ session['username'].upper() }}</strong></p>
+        <p>Current Title: <span class="badge badge-success">{{ rank }}</span></p>
+        <p>Total Level Points: <strong style="color: #d2a8ff;">{{ analytics.get('xp', 0) }} XP</strong></p>
+        <hr style="border-color: #30363d;">
+        <p>Exams Completed: <strong>{{ analytics.total_exams }}</strong></p>
+        <p>High Score Record: <strong style="color: #56d364;">{{ analytics.highest_score }}%</strong></p>
+        
+        <a href="{{ url_for('start_exam') }}"><button style="width: 100%; margin-top: 15px; font-size: 1.1em; background: linear-gradient(135deg, #238636 0%, #1f6630 100%);">⚔️ Launch Testing Simulation</button></a>
+    </div>
+
+    <div class="card" style="flex: 2; min-width: 400px;">
+        <h3>📊 Domain Proficiency Matrix (ISC² Distribution)</h3>
+        {% if analytics.get('domain_metrics') %}
+            {% for domain, metrics in analytics.domain_metrics.items() %}
+                {% set pct = (metrics.correct / metrics.total * 100)|round|int if metrics.total > 0 else 0 %}
+                <div style="margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.9em;">
+                        <span>{{ domain }}</span>
+                        <span style="font-weight: bold; color: {% if pct >= 70 %}#56d364{% else %}#f85149{% endif %};">{{ pct }}% accuracy ({{ metrics.correct }}/{{ metrics.total }})</span>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar-fill" style="width: {{ pct }}%; background-color: {% if pct >= 70 %}#238636{% else %}#da3633{% endif %};"></div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p style="color: #8b949e;">No active matrices found. Run a simulation run to compile analytics.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

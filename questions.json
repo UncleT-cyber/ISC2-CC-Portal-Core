@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "domain": "Security Principles",
+    "question": "Which of the following is the best definition of Risk?",
+    "options": [
+      "A weakness in an asset",
+      "The likelihood of a threat exploiting a vulnerability and causing impact",
+      "Any agent that can cause harm to an architecture",
+      "The monetary value of an asset"
+    ],
+    "answer": "The likelihood of a threat exploiting a vulnerability and causing impact"
+  },
+  {
+    "id": 2,
+    "domain": "Access Controls Concepts",
+    "question": "Implementing MFA (Multi-Factor Authentication) combines what?",
+    "options": [
+      "Two things you know",
+      "Something you have and something you know",
+      "Two different passwords",
+      "Something you are and something you are"
+    ],
+    "answer": "Something you have and something you know"
+  }
+]

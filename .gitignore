@@ -1,0 +1,10 @@
+# Ignore the local SQLite database containing user info
+isc2_simulator.db
+
+# Ignore local Streamlit secrets and keys
+.streamlit/secrets.toml
+.streamlit/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc

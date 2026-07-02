@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Performance Evaluation</h2>
+<h3>Score: {{ score }}% ({% if score >= 70 %}✅ Pass{% else %}❌ Fail{% endif %})</h3>
+<p>Total Test Time: {{ duration }}s | Score breakdown: {{ correct_count }}/{{ total_questions }} items correct.</p>
+<hr>
+
+<h3>🔍 Incorrect Question Review</h3>
+{% if incorrect_review %}
+    {% for item in incorrect_review %}
+        <div style="background: #1e232a; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
+            <p><strong>Question:</strong> {{ item.question }}</p>
+            <p style="color: #ff6b6b;"><strong>Your Selection:</strong> {{ item.user_answer }}</p>
+            <p style="color: #51cf66;"><strong>Correct Concept:</strong> {{ item.correct_answer }}</p>
+        </div>
+    {% endfor %}
+{% else %}
+    <p style="color: #51cf66; font-weight: bold;">Perfect assessment run! No remediation needed.</p>
+{% endif %}
+
+<br>
+<a href="{{ url_for('dashboard') }}"><button>Return to Dashboard</button></a>
+{% endblock %}

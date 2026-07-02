@@ -1,0 +1,40 @@
+{
+    "unclet": {
+        "total_exams": 2,
+        "highest_score": 100,
+        "weak_points": {},
+        "xp": 20,
+        "correct_answers": 2,
+        "wrong_answers": 0,
+        "domain_metrics": {
+            "Domain 1: Security Principles": {
+                "correct": 0,
+                "total": 0
+            },
+            "Domain 2: Access Controls Concepts": {
+                "correct": 0,
+                "total": 0
+            },
+            "Domain 3: Network Security": {
+                "correct": 0,
+                "total": 0
+            },
+            "Domain 4: Security Operations": {
+                "correct": 0,
+                "total": 0
+            },
+            "Domain 5: BC, DR & IR Concepts": {
+                "correct": 0,
+                "total": 0
+            },
+            "Access Controls Concepts": {
+                "correct": 1,
+                "total": 1
+            },
+            "Security Principles": {
+                "correct": 1,
+                "total": 1
+            }
+        }
+    }
+}
