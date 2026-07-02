@@ -8,7 +8,8 @@ import json
 import streamlit.components.v1 as components
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from google import genai
+import ollama  
+from session_manager import inject_session_persistence_engine, execute_secure_logout
 
 # =====================================================================
 # 1. CRYPTOGRAPHIC SECURITY & CONFIGURATION MATRIX
@@ -16,7 +17,6 @@ from google import genai
 DEFAULT_FALLBACK_HASH = "64b7bd3b82736b009e992764f1e967a57fa85bd486a4387d85ef66bb8b6639c4"
 
 def get_admin_hash_target():
-    """Retrieves target admin hash from production secrets, falling back to repository default."""
     return st.secrets.get("ADMIN_HASH_TARGET", DEFAULT_FALLBACK_HASH)
 
 def verify_is_admin(input_username):
@@ -27,10 +27,8 @@ def hash_password(plain_text_pass):
     return hashlib.sha256(plain_text_pass.strip().encode()).hexdigest()
 
 def send_smtp_email(recipient_email, subject, html_content):
-    """Securely transmits outbound notification emails using system secrets configuration."""
     smtp_config = st.secrets.get("smtp", {})
     if not smtp_config:
-        st.warning("SMTP configurations are not live. Email notifications are currently offline.")
         return False
         
     try:
@@ -48,18 +46,11 @@ def send_smtp_email(recipient_email, subject, html_content):
         server.sendmail(smtp_config["SENDER_EMAIL"], recipient_email, msg.as_string())
         server.quit()
         return True
-    except Exception as e:
-        print(f"Mail delivery subsystem quiet bypass: {str(e)}")
+    except Exception:
         return False
 
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-
-ai_client = None
-if GEMINI_API_KEY:
-    ai_client = genai.Client(api_key=GEMINI_API_KEY)
-
 # =====================================================================
-# 2. DATABASE REPOSITORY SETUP WITH EMAIL SCHEMA UPGRADES
+# 2. DATABASE REPOSITORY SETUP
 # =====================================================================
 DB_FILE = "isc2_simulator.db"
 
@@ -106,47 +97,17 @@ def init_db():
 init_db()
 
 # =====================================================================
-# 3. STREAMLIT CONFIGURATION & SESSION STATE SYNC
+# 3. STREAMLIT CONFIGURATION & CRASH-SAFE SESSION STATE SYNC
 # =====================================================================
 st.set_page_config(page_title="(ISC)² CC Simulator Engine", page_icon="🛡️", layout="wide")
 
-# Persistent Login Handler via Browser LocalStorage
-def init_browser_session_sync():
-    if st.session_state.get("authenticated_user") is not None:
-        return
-
-    # Render hidden JavaScript bridge to inspect localStorage keys
-    storage_bridge = components.html(
-        """
-        <script>
-            const savedUser = localStorage.getItem("isc2_cc_session_user");
-            const savedAdmin = localStorage.getItem("isc2_cc_session_admin");
-            if (savedUser && savedAdmin) {
-                window.parent.postMessage({
-                    type: "streamlit:setComponentValue",
-                    value: JSON.stringify({username: savedUser, is_admin: savedAdmin === "true"})
-                }, "*");
-            }
-        </script>
-        """,
-        height=0
-    )
-    
-    if storage_bridge:
-        try:
-            stored_data = json.loads(storage_bridge)
-            st.session_state.is_admin = stored_data["is_admin"]
-            st.session_state.authenticated_user = stored_data["username"]
-            st.rerun()
-        except Exception:
-            pass
-
-init_browser_session_sync()
-
+# Persistent state initialization
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
+if "current_view" not in st.session_state:
+    st.session_state.current_view = "landing"
 if "current_exam" not in st.session_state:
     st.session_state.current_exam = None
 if "current_index" not in st.session_state:
@@ -155,6 +116,8 @@ if "user_answers" not in st.session_state:
     st.session_state.user_answers = {}
 if "user_confidence" not in st.session_state:
     st.session_state.user_confidence = {}
+if "ai_response_cache" not in st.session_state:
+    st.session_state.ai_response_cache = {}
 if "exam_end_timestamp" not in st.session_state:
     st.session_state.exam_end_timestamp = None
 if "session_active" not in st.session_state:
@@ -164,30 +127,104 @@ if "selected_count" not in st.session_state:
 if "selected_mode" not in st.session_state:
     st.session_state.selected_mode = None
 
+# Synchronize session state parameters instantly via local storage manager
+inject_session_persistence_engine()
+
+# Defensively handle view router assignments to block refresh-induced logouts
+try:
+    q_params = dict(st.query_params)
+except Exception:
+    q_params = {}
+
+if st.session_state.authenticated_user is not None or "rec_u" in q_params:
+    st.session_state.current_view = "dashboard"
+
+# CSS Styling Matrices
 st.markdown("""
     <style>
-    .isc2-header { color: #15803d; font-weight: 800; font-size: 2.6rem; text-align: center; margin-bottom: 0.2rem; }
-    .isc2-subheader { color: #475569; font-size: 1rem; text-align: center; font-weight: 600; margin-bottom: 2rem; letter-spacing: 1px; }
-    .card { background-color: #ffffff; padding: 1.8rem; border-radius: 8px; border-top: 5px solid #15803d; box-shadow: 0 4px 10px rgba(0,0,0,0.06); color: #1e293b; margin-bottom: 1rem; }
-    .ai-box { background-color: #f8fafc; padding: 1.5rem; border-radius: 8px; border-left: 5px solid #0284c7; box-shadow: 0 2px 8px rgba(0,0,0,0.04); color: #0f172a; }
-    .login-box { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border-top: 6px solid #15803d; max-width: 650px; margin: 0 auto; }
-    .dashboard-box { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.05); border-top: 6px solid #15803d; max-width: 800px; margin: 2rem auto; }
-    .timer-critical { background-color: #fef2f2; border: 1px solid #fee2e2; color: #dc2626; padding: 1rem; border-radius: 8px; font-weight: 800; text-align: center; font-size: 1.3rem; margin-bottom: 1rem; }
+    .stApp { background-color: #0f172a; color: #f8fafc; }
+    
+    .hero-container {
+        text-align: center;
+        padding: 5rem 2rem 4rem 2rem;
+        background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
+        border-radius: 16px;
+        margin-bottom: 2.5rem;
+        border: 1px solid #1e293b;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .hero-title { font-size: 3.6rem; font-weight: 800; color: #ffffff; margin-bottom: 1rem; letter-spacing: -1px; }
+    .hero-subtitle { font-size: 1.35rem; color: #94a3b8; max-width: 800px; margin: 0 auto 1.5rem auto; line-height: 1.6; }
+    
+    .feature-card {
+        background-color: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #334155;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); transition: transform 0.2s ease, border-color 0.2s ease;
+        height: 280px; margin-bottom: 1rem;
+    }
+    .feature-card:hover { transform: translateY(-5px); border-color: #2563eb; }
+    .feature-icon { font-size: 2.3rem; margin-bottom: 1rem; }
+    .feature-title { font-size: 1.25rem; font-weight: 700; color: #ffffff; margin-bottom: 0.5rem; }
+    .feature-text { font-size: 0.95rem; color: #94a3b8; line-height: 1.5; }
+    
+    .isc2-header { color: #22c55e; font-weight: 800; font-size: 2.6rem; text-align: center; margin-bottom: 0.2rem; }
+    .isc2-subheader { color: #94a3b8; font-size: 1rem; text-align: center; font-weight: 600; margin-bottom: 2rem; letter-spacing: 1px; }
+    .card { background-color: #1e293b; padding: 1.8rem; border-radius: 8px; border-left: 5px solid #22c55e; box-shadow: 0 4px 10px rgba(0,0,0,0.2); color: #f8fafc; margin-bottom: 1rem; }
+    
+    .ai-box { background-color: #1e293b; padding: 1.5rem; border-radius: 8px; border-left: 5px solid #0284c7; color: #f8fafc; border: 1px solid #334155; }
+    .ai-box-offline { background-color: #2d1a1a; padding: 1.5rem; border-radius: 8px; border-left: 5px solid #ef4444; color: #fca5a5; border: 1px solid #451a1a; }
+    
+    .login-box { background: #1e293b; padding: 2.5rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); border-top: 6px solid #22c55e; max-width: 650px; margin: 3rem auto; color: #f8fafc; }
+    
+    .dashboard-box { background: #1e293b; padding: 2.5rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); border-top: 6px solid #22c55e; max-width: 800px; margin: 2rem auto; color: #f8fafc; }
+    .timer-critical { background-color: #7f1d1d; border: 1px solid #f87171; color: #fca5a5; padding: 1rem; border-radius: 8px; font-weight: 800; text-align: center; font-size: 1.3rem; margin-bottom: 1rem; }
     </style>
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 4. AUTHENTICATION HUB (SIGN IN / SIGN UP / RESET)
+# 4. VIEW LOGIC DISPATCHER
 # =====================================================================
-if st.session_state.authenticated_user is None:
-    st.markdown("<div class='isc2-header'>🛡️ (ISC)² CC Portal Core</div>", unsafe_allow_html=True)
-    st.markdown("<div class='isc2-subheader'>Official Certified in Cybersecurity Training Sandbox</div>", unsafe_allow_html=True)
+
+if st.session_state.current_view == "landing":
+    st.markdown("""
+        <div class="hero-container">
+            <div class="hero-title">🛡️ ISC² CC Training Core</div>
+            <div class="hero-subtitle">
+                Learn cybersecurity the smart way — practice questions, mock exams, and local AI mentoring engineered into one ecosystem.
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    col_btn1, col_btn2, _ = st.columns([2, 2, 4])
+    with col_btn1:
+        if st.button("🟢 Get Started / Register", use_container_width=True, type="primary", key="landing_reg_btn"):
+            st.session_state.current_view = "auth"
+            st.rerun()
+    with col_btn2:
+        if st.button("🔵 Log In To Dashboard", use_container_width=True, key="landing_login_btn"):
+            st.session_state.current_view = "auth"
+            st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("## ✨ Engineered Platform Capabilities")
     
+    feat_col1, feat_col2, feat_col3, feat_col4 = st.columns(4)
+    with feat_col1:
+        st.markdown('<div class="feature-card"><div class="feature-icon">🧠</div><div class="feature-title">AI Cognitive Tutoring</div><div class="feature-text">Powered by local hardware infrastructure. Get contextual option teardowns and domain syllabus structural rationales automatically.</div></div>', unsafe_allow_html=True)
+    with feat_col2:
+        st.markdown('<div class="feature-card"><div class="feature-icon">📝</div><div class="feature-title">Custom Question Pools</div><div class="feature-text">Build your own security database schema. Add customized domain vectors that integrate directly with your study runs.</div></div>', unsafe_allow_html=True)
+    with feat_col3:
+        st.markdown('<div class="feature-card"><div class="feature-icon">⏱️</div><div class="feature-title">High-Fidelity Mocks</div><div class="feature-text">Simulate strict exam environments. Randomized question delivery vectors, disabled AI coaches, and standalone countdown fragment locks.</div></div>', unsafe_allow_html=True)
+    with feat_col4:
+        st.markdown('<div class="feature-card"><div class="feature-icon">📊</div><div class="feature-title">Confidence Metrics</div><div class="feature-text">Track knowledge accuracy alongside user-reported certainty percentages (0-100%) to flag structural bias and systematic gaps before testing.</div></div>', unsafe_allow_html=True)
+
+elif st.session_state.current_view == "auth":
+    if st.button("⬅️ Back to Landing Page", key="back_to_landing"):
+        st.session_state.current_view = "landing"
+        st.rerun()
+        
     st.markdown("<div class='login-box'>", unsafe_allow_html=True)
-    
     auth_tab1, auth_tab2, auth_tab3 = st.tabs(["🔑 Sign In", "📝 Create Account", "🔄 Reset Password"])
     
-    # ---- TAB 1: USER LOGIN ----
     with auth_tab1:
         st.markdown("### Profile Authentication Entry")
         login_user = st.text_input("Username Identifier:", key="login_u_box").strip().upper()
@@ -207,25 +244,24 @@ if st.session_state.authenticated_user is None:
                     is_admin_flag = verify_is_admin(login_user)
                     resolved_user = "PLATFORM_ADMIN" if is_admin_flag else login_user
                     
-                    # Inject JavaScript to save configuration strings to browser local storage
+                    st.session_state.is_admin = is_admin_flag
+                    st.session_state.authenticated_user = resolved_user
+                    st.session_state.current_view = "dashboard"
+                    
                     components.html(
                         f"""
                         <script>
                             localStorage.setItem("isc2_cc_session_user", "{resolved_user}");
                             localStorage.setItem("isc2_cc_session_admin", "{str(is_admin_flag).lower()}");
-                            window.parent.location.reload();
                         </script>
                         """,
                         height=0
                     )
-                    
-                    st.session_state.is_admin = is_admin_flag
-                    st.session_state.authenticated_user = resolved_user
+                    time.sleep(0.1)
                     st.rerun()
                 else:
                     st.error("Access verification handshake dropped: Invalid Credentials.")
 
-    # ---- TAB 2: REGISTRATION & PROTECTIONS ----
     with auth_tab2:
         st.markdown("### Account Registration Onboarding")
         reg_user = st.text_input("Select Unique Username Key:", key="reg_u").strip().upper()
@@ -245,9 +281,9 @@ if st.session_state.authenticated_user is None:
             input_user_hash = hashlib.sha256(reg_user.encode()).hexdigest()
             
             if not reg_user or not reg_email or not reg_pass or not recovery_a:
-                st.error("All configuration identity fields must be fully populated.")
+                st.error("All configuration fields must be fully populated.")
             elif input_user_hash == current_target_hash or reg_user == "SUPER_SECRET_ADMIN_PORTAL":
-                st.error("Operation Denied: This administrative identity string namespace is reserved exclusively.")
+                st.error("Operation Denied: This administrative identity namespace is reserved.")
             elif "@" not in reg_email or "." not in reg_email:
                 st.error("Please provide a syntactically valid email address structure.")
             else:
@@ -255,7 +291,7 @@ if st.session_state.authenticated_user is None:
                 cursor = conn.cursor()
                 cursor.execute("SELECT 1 FROM user_registry WHERE username = ?", (reg_user,))
                 if cursor.fetchone():
-                    st.error("Identity conflict detected. This username key has already been issued.")
+                    st.error("Identity conflict detected. This username has already been issued.")
                     conn.close()
                 else:
                     cursor.execute("""
@@ -265,18 +301,10 @@ if st.session_state.authenticated_user is None:
                     conn.commit()
                     conn.close()
                     
-                    welcome_html = f"""
-                    <div style="font-family: Arial, sans-serif; border-top: 5px solid #15803d; padding: 20px;">
-                        <h2 style="color: #15803d;">🛡️ (ISC)² CC Training Simulator</h2>
-                        <p>Hello <strong>{reg_user}</strong>,</p>
-                        <p>Your portal sandbox profile account is now active. Welcome to our testing ecosystem!</p>
-                        <p>Keep an eye on this inbox for future security updates and system masterclass announcements.</p>
-                    </div>
-                    """
+                    welcome_html = f"<h2>🛡️ Account Activated</h2><p>Hello {reg_user}, profile node initialized successfully.</p>"
                     send_smtp_email(reg_email, "Account Activated - (ISC)2 Engine Sandbox", welcome_html)
-                    st.success(f"✨ Registration Completed! Welcome to the portal as {reg_user}.")
+                    st.success(f"✨ Registration Completed! Toggle back to 'Sign In' to access your dashboard.")
 
-    # ---- TAB 3: SELF-SERVICE RESET (QUESTION GATED ONLY) ----
     with auth_tab3:
         st.markdown("### Self-Service Password Recovery Gateway")
         reset_user = st.text_input("Enter Locked Username Identification String:", key="rst_u").strip().upper()
@@ -296,7 +324,7 @@ if st.session_state.authenticated_user is None:
                 
                 if st.button("💾 Verify Security Answers & Save Password", use_container_width=True):
                     if not answer_attempt or not new_pass_entry:
-                        st.error("Both the security challenge answer and your new password entry must be filled out.")
+                        st.error("Both parameters must be filled out.")
                     else:
                         conn = sqlite3.connect(DB_FILE)
                         cursor = conn.cursor()
@@ -308,28 +336,17 @@ if st.session_state.authenticated_user is None:
                             conn.commit()
                             conn.close()
                             
-                            alert_html = f"""
-                            <div style="font-family: Arial, sans-serif; border-top: 5px solid #eab308; padding: 20px;">
-                                <h3 style="color: #854d0e;">⚠️ Security Matrix Account Notice</h3>
-                                <p>Hello <strong>{reset_user}</strong>,</p>
-                                <p>The access credentials tied to your sandbox profile were successfully modified via Security Question Validation.</p>
-                                <p>If you did not execute this parameters shift, please escalate immediately to system network ops.</p>
-                            </div>
-                            """
+                            alert_html = f"<h3>⚠️ Security Notice</h3><p>Your access keys were updated via challenge confirmation.</p>"
                             send_smtp_email(registered_email, "Security Alert: Passcode Modified", alert_html)
-                            st.success("🔒 Security details updated successfully on-screen! You can now toggle to 'Sign In'.")
+                            st.success("🔒 Access details updated successfully! Head back to 'Sign In'.")
                         else:
                             st.error("Verification failure. Security challenge response mismatch.")
                             conn.close()
             else:
-                st.error("The specified profile string target does not exist in our active directories.")
-                
+                st.error("The specified profile string target does not exist.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-else:
-    # =====================================================================
-    # 5. POST-AUTHENTICATION ENVIRONMENT (SIDEBAR & ROOT DATA)
-    # =====================================================================
+elif st.session_state.current_view == "dashboard":
     current_user = st.session_state.authenticated_user
     is_admin_session = st.session_state.is_admin
     
@@ -341,27 +358,8 @@ else:
     app_mode = st.sidebar.radio("Console Navigation Matrix", ["Run Practice Exam", "Admin Content Manager"])
     
     if st.sidebar.button("Log Out / Exit Portal Context", use_container_width=True):
-        # Wipe browser memory cache clean upon explicit exit request
-        components.html(
-            """
-            <script>
-                localStorage.removeItem("isc2_cc_session_user");
-                localStorage.removeItem("isc2_cc_session_admin");
-                window.parent.location.reload();
-            </script>
-            """,
-            height=0
-        )
-        st.session_state.authenticated_user = None
-        st.session_state.is_admin = False
-        st.session_state.current_exam = None
-        st.session_state.session_active = False
-        st.session_state.selected_mode = None
-        st.rerun()
+        execute_secure_logout()
 
-    # =====================================================================
-    # 6. MANAGEMENT TERMINAL (ADMIN)
-    # =====================================================================
     if app_mode == "Admin Content Manager":
         st.subheader("📝 Live Training Portal Questionnaire Sync")
         if is_admin_session or verify_is_admin(current_user):
@@ -397,18 +395,13 @@ else:
                 else:
                     st.error("All configuration targets must be populated.")
 
-    # =====================================================================
-    # 7. LIVE EXAMINATION ENVIRONMENT & WELCOME DASHBOARD
-    # =====================================================================
     elif app_mode == "Run Practice Exam":
-        
         if not st.session_state.session_active:
             st.markdown(f"<div class='isc2-header'>🛡️ Welcome, Candidate {current_user}</div>", unsafe_allow_html=True)
             st.markdown("<div class='isc2-subheader'>Configure your active testing framework options below.</div>", unsafe_allow_html=True)
             
             st.markdown("<div class='dashboard-box'>", unsafe_allow_html=True)
             st.markdown("### ⚙️ Session Parameters Configuration")
-            
             chosen_q_count = st.selectbox("Exam Evaluation Pool Item Target Count Length:", [20, 40, 60, 80, 100], index=0)
             
             st.write("---")
@@ -416,7 +409,7 @@ else:
             
             col_dash_p, col_dash_e = st.columns(2)
             with col_dash_p:
-                if st.button("📖 Launch Practice Session lounge", use_container_width=True):
+                if st.button("📖 Launch Practice Session Lounge", use_container_width=True):
                     st.session_state.selected_count = chosen_q_count
                     st.session_state.selected_mode = "Practice Mode"
                     st.session_state.session_active = True
@@ -446,27 +439,46 @@ else:
                     st.session_state.current_index = 0
                     st.session_state.user_answers = {}
                     st.session_state.user_confidence = {}
+                    st.session_state.ai_response_cache = {}
                     st.rerun()
                 else:
-                    st.warning("No questions found matching this environment.")
+                    st.warning("No questions found tracking within your workspace context scopes.")
                     st.session_state.session_active = False
-            
             else:
                 exam = st.session_state.current_exam
                 idx = st.session_state.current_index
                 mode_setting = st.session_state.selected_mode
                 
-                if mode_setting == "Exam Mode" and idx < len(exam):
+                # =============================================================
+                # DEFENSIVE EXAM STRUCTURAL BOUNDS CHECK
+                # =============================================================
+                # Force index stabilization to guarantee users never see blank screening layouts
+                if idx > len(exam) - 1 and len(exam) > 0:
+                    st.session_state.current_index = len(exam)
+                    idx = len(exam)
+
+                # =============================================================
+                # DECOUPLED STABLE STRUCTURAL COUNTDOWN TIMER
+                # =============================================================
+                if mode_setting == "Exam Mode":
+                    timer_container = st.empty()
+                    
                     @st.fragment(run_every=1.0)
                     def render_active_countdown_clock():
-                        time_left = int(st.session_state.exam_end_timestamp - time.time())
+                        end_time = st.session_state.get("exam_end_timestamp", time.time() + 60)
+                        time_left = int(end_time - time.time())
+                        
                         if time_left <= 0:
-                            st.session_state.current_index = len(exam)
-                            st.rerun()
+                            timer_container.markdown("<div class='timer-critical'>🚨 TIME EXPIRED! PLEASE TERMINATE AND GRADE NOW.</div>", unsafe_allow_html=True)
                         else:
                             m, s = divmod(time_left, 60)
-                            st.markdown(f"<div class='timer-critical'>⏳ TIME REMAINING: {m:02d}:{s:02d}</div>", unsafe_allow_html=True)
+                            timer_container.markdown(f"<div class='timer-critical'>⏳ TIME REMAINING: {m:02d}:{s:02d}</div>", unsafe_allow_html=True)
+                    
                     render_active_countdown_clock()
+
+                    if st.session_state.exam_end_timestamp and time.time() > st.session_state.exam_end_timestamp:
+                        st.session_state.current_index = len(exam)
+                        st.rerun()
 
                 if idx < len(exam):
                     q = exam[idx]
@@ -487,23 +499,17 @@ else:
                             index=None if current_selection is None else ["A", "B", "C", "D"].index(current_selection),
                             key=f"radio_question_{idx}"
                         )
-                        
-                        if choice:
+                        if choice and choice != current_selection:
                             st.session_state.user_answers[idx] = choice
 
                         st.write("---")
-                        
                         saved_conf = st.session_state.user_confidence.get(idx, 0)
-                        conf_input = st.slider(
-                            "Metrics Assessment Retention Confidence Scale (Must select greater than 0% to proceed):", 
-                            0, 100, saved_conf, 5,
-                            key=f"confidence_slider_{idx}"
-                        )
+                        conf_input = st.slider("Confidence Scale (Must select greater than 0% to proceed):", 0, 100, saved_conf, 5, key=f"confidence_slider_{idx}")
                         st.session_state.user_confidence[idx] = conf_input
-                        st.progress(conf_input / 100)
+                        
+                        st.progress(float(conf_input / 100.0))
 
                         is_next_allowed = (choice is not None) and (conf_input > 0)
-
                         st.write("")
                         nav1, nav2, _ = st.columns([1, 1, 2])
                         with nav1:
@@ -520,56 +526,49 @@ else:
                                 if st.button("🎓 Terminate & Grade", use_container_width=True, disabled=not is_next_allowed):
                                     st.session_state.current_index = len(exam)
                                     st.rerun()
-                                    
                         if not is_next_allowed:
-                            st.warning("⚠️ **(ISC)² System Gating Notice:** You must select an answer choice AND adjust the confidence scale above 0% before the system unlocks the next question.")
+                            st.warning("⚠️ You must select an answer choice AND adjust the confidence scale above 0% to proceed.")
 
                     with right_ai_col:
-                        st.markdown("### 🤖 Live Gemini Instructor Coach")
+                        st.markdown("### 🛡️ Core Nexus AI Mentor")
                         if mode_setting == "Practice Mode":
-                          if choice:
-                            st.markdown("<div class='ai-box'>", unsafe_allow_html=True)
-                            
-                            gemini_analysis_prompt = f"""
-                            You are an elite (ISC)² Certified in Cybersecurity (CC) trainer.
-                            Analyze this item context. RESPOND IMMEDIATELY AND CONCISELY (max 150 words).
-                            Domain: {q['domain']}
-                            Question: {q['question_text']}
-                            Choices: A: {q['option_a']}, B: {q['option_b']}, C: {q['option_c']}, D: {q['option_d']}
-                            Selected Option Key: {choice}
-                            Correct Target Key: {q['correct_option']}
-                            Syllabus Note: {q['official_rationale']}
-                            
-                            State right away if correct or incorrect, why, and a 2-sentence domain takeaway.
-                            """
-                            
-                            if ai_client:
-                                try:
-                                    response_stream = ai_client.models.generate_content_stream(
-                                        model='gemini-2.5-flash',
-                                        contents=gemini_analysis_prompt
-                                    )
-                                    st.write_stream(chunk.text for chunk in response_stream)
-                                except Exception as e:
-                                    st.error(f"Stream generation dropped: {str(e)}")
-                            else:
-                                st.warning("API key missing from workspace secrets layout configurations.")
+                            if choice:
+                                idx_cache_key = f"q_{idx}"
                                 
-                            st.markdown("</div>", unsafe_allow_html=True)
-                          else:
-                            st.info("💡 *Select an answer choice on the left to activate the Gemini Instructor coaching terminal instantly without lagging or scrolling.*")
+                                if idx_cache_key in st.session_state.ai_response_cache:
+                                    st.markdown("<div class='ai-box'>", unsafe_allow_html=True)
+                                    st.write(st.session_state.ai_response_cache[idx_cache_key])
+                                    st.markdown("</div>", unsafe_allow_html=True)
+                                else:
+                                    llama_prompt = (
+                                        f"Analyze option path context concisely for Domain: {q['domain']}. "
+                                        f"Question: {q['question_text']}, Choice Key: {choice}, Correct: {q['correct_option']}. "
+                                        f"Rationale: {q['official_rationale']}."
+                                    )
+                                    try:
+                                        with st.spinner("Core Nexus is computing analysis automatically..."):
+                                            response = ollama.chat(
+                                                model='llama3.2',
+                                                messages=[{'role': 'user', 'content': llama_prompt}]
+                                            )
+                                            st.session_state.ai_response_cache[idx_cache_key] = response['message']['content']
+                                        st.rerun()
+                                    except Exception:
+                                        st.markdown("<div class='ai-box-offline'>", unsafe_allow_html=True)
+                                        st.markdown("### 📴 Engine Status: Offline")
+                                        st.write("Core Nexus is currently disconnected. To activate local mentoring:")
+                                        st.markdown("""
+                                        * Ensure the **Ollama Application** is running in your server task infrastructure.
+                                        * If deployed online, verify dynamic dynamic DNS mapping variables.
+                                        """)
+                                        st.markdown("</div>", unsafe_allow_html=True)
+                            else:
+                                st.info("💡 *Select an answer choice to automatically trigger the Core Nexus AI mentor.*")
                         else:
-                            st.caption("🔒 *AI coaching engine deactivated during high-fidelity exam mode simulations.*")
+                            st.caption("🔒 *AI mentoring engine deactivated during high-fidelity exam mode simulations.*")
                 else:
-                    # =====================================================================
-                    # 8. GRADING METRICS EVALUATION AUDIT CONSOLE
-                    # =====================================================================
                     st.subheader("📊 Session Processing Complete: System Audit Summary")
-                    correct_tally = 0
-                    for i, q in enumerate(exam):
-                        if st.session_state.user_answers.get(i, None) == q['correct_option']:
-                            correct_tally += 1
-                            
+                    correct_tally = sum(1 for i, q in enumerate(exam) if st.session_state.user_answers.get(i, None) == q['correct_option'])
                     final_score = int((correct_tally / len(exam)) * 100) if len(exam) > 0 else 0
                     
                     if final_score >= 70:
@@ -581,8 +580,7 @@ else:
                     with st.expander("🔍 Review Detailed Answer Key Logs + AI Explanations"):
                         for i, q in enumerate(exam):
                             u_ans = st.session_state.user_answers.get(i, 'Unanswered')
-                            is_correct = u_ans == q['correct_option']
-                            status_symbol = "✅" if is_correct else "❌"
+                            status_symbol = "✅" if u_ans == q['correct_option'] else "❌"
                             st.markdown(f"**Question {i+1}: {status_symbol} (Confidence: {st.session_state.user_confidence.get(i, 0)}%)**")
                             st.write(q['question_text'])
                             st.write(f"* Your Choice: **{u_ans}** | Correct Key: **{q['correct_option']}**")
@@ -593,6 +591,7 @@ else:
                         st.session_state.current_index = 0
                         st.session_state.user_answers = {}
                         st.session_state.user_confidence = {}
+                        st.session_state.ai_response_cache = {}
                         st.session_state.session_active = False
                         st.session_state.selected_mode = None
                         st.rerun()
