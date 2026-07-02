@@ -97,7 +97,7 @@ pip install -r requirements.txt
 Create a .streamlit/secrets.toml file manually in your root workspace folder. Add the administrative keys, your email SMTP relay properties, and your AWS programmatic keys:
 
 Ini, TOML
-ADMIN_HASH_TARGET = "64b7bd3b82736b009e992764f1e967a57fa85bd486a4387d85ef66bb8b6639c4"
+ADMIN_HASH_TARGET = "64b7bd3b82736b009e992764f1e967a57XXXXXXXXXX4387d85ef66bb8b6639c4"
 
 [smtp]
 SERVER = "smtp.gmail.com"
