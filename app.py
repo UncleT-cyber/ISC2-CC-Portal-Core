@@ -549,9 +549,9 @@ elif st.session_state.current_view == "dashboard":
                                             
                                             # Invoking Meta Llama 3.1 8B Instruct variant on AWS Bedrock catalog
                                             response = bedrock.invoke_model(
-                                                modelId="meta.llama3-1-8b-instruct-v1:0",
-                                                body=body_payload
-                                            )
+    modelId="meta.llama3-8b-instruct-v1:0",
+    body=body_payload
+)
                                             
                                             response_body = json.loads(response.get('body').read())
                                             ai_response_text = response_body.get('generation')
