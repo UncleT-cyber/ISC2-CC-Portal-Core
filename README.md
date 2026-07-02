@@ -88,7 +88,7 @@ ISC2-CC-Portal-Core/
 ⚙️ Local Installation & Configuration
 1. Clone the Repository
 Bash
-git clone [https://github.com/UncleT-cyber/ISC2-CC-Portal-Core.git](https://github.com/UncleT-cyber/ISC2-CC-Portal-Core.git)
+git clone https://github.com/UncleT-cyber/ISC2-CC-Portal-Core.git
 cd ISC2-CC-Portal-Core
 2. Install Dependencies
 Bash
