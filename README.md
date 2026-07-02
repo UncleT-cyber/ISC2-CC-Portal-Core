@@ -193,10 +193,7 @@ Head to the Create Account page and register that exact username.
 
 Login normally. The pipeline instantly identifies the hash parity and assigns your account full administrative privileges.
 
-📸 Screenshots
-Login & Registration Interface: <img width="1283" height="841" alt="image" src="https://github.com/user-attachments/assets/4910314f-6d36-4485-b968-a1ab73b57a30" />
 
-User Dashboard Cockpit: <img width="1289" height="840" alt="image" src="https://github.com/user-attachments/assets/6d4f7454-880f-4979-b5c5-85273958b55b" />
 
 🗺️ Future Roadmap
 Planned structural improvements include:
