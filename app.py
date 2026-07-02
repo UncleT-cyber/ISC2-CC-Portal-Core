@@ -8,7 +8,7 @@ import json
 import streamlit.components.v1 as components
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import ollama  
+import boto3  
 from session_manager import inject_session_persistence_engine, execute_secure_logout
 
 # =====================================================================
@@ -176,7 +176,7 @@ st.markdown("""
     .login-box { background: #1e293b; padding: 2.5rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); border-top: 6px solid #22c55e; max-width: 650px; margin: 3rem auto; color: #f8fafc; }
     
     .dashboard-box { background: #1e293b; padding: 2.5rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); border-top: 6px solid #22c55e; max-width: 800px; margin: 2rem auto; color: #f8fafc; }
-    .timer-critical { background-color: #7f1d1d; border: 1px solid #f87171; color: #fca5a5; padding: 1rem; border-radius: 8px; font-weight: 800; text-align: center; font-size: 1.3rem; margin-bottom: 1rem; }
+    .timer-sidebar { background-color: #7f1d1d; border: 1px solid #f87171; color: #fca5a5; padding: 0.8rem; border-radius: 8px; font-weight: 800; text-align: center; font-size: 1.1rem; margin: 1rem 0; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -189,7 +189,7 @@ if st.session_state.current_view == "landing":
         <div class="hero-container">
             <div class="hero-title">🛡️ ISC² CC Training Core</div>
             <div class="hero-subtitle">
-                Learn cybersecurity the smart way — practice questions, mock exams, and local AI mentoring engineered into one ecosystem.
+                Learn cybersecurity the smart way — practice questions, mock exams, and cloud-native AI mentoring engineered into one ecosystem.
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -209,11 +209,11 @@ if st.session_state.current_view == "landing":
     
     feat_col1, feat_col2, feat_col3, feat_col4 = st.columns(4)
     with feat_col1:
-        st.markdown('<div class="feature-card"><div class="feature-icon">🧠</div><div class="feature-title">AI Cognitive Tutoring</div><div class="feature-text">Powered by local hardware infrastructure. Get contextual option teardowns and domain syllabus structural rationales automatically.</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="feature-card"><div class="feature-icon">🧠</div><div class="feature-title">AWS Bedrock Tutoring</div><div class="feature-text">Powered securely by AWS cloud intelligence infrastructure. Get contextual option teardowns and domain syllabus rationales inside the sandbox.</div></div>', unsafe_allow_html=True)
     with feat_col2:
         st.markdown('<div class="feature-card"><div class="feature-icon">📝</div><div class="feature-title">Custom Question Pools</div><div class="feature-text">Build your own security database schema. Add customized domain vectors that integrate directly with your study runs.</div></div>', unsafe_allow_html=True)
     with feat_col3:
-        st.markdown('<div class="feature-card"><div class="feature-icon">⏱️</div><div class="feature-title">High-Fidelity Mocks</div><div class="feature-text">Simulate strict exam environments. Randomized question delivery vectors, disabled AI coaches, and standalone countdown fragment locks.</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="feature-card"><div class="feature-icon">⏱️</div><div class="feature-title">High-Fidelity Mocks</div><div class="feature-text">Simulate strict exam environments. Randomized question delivery vectors, disabled AI coaches, and standalone countdown state synchronization.</div></div>', unsafe_allow_html=True)
     with feat_col4:
         st.markdown('<div class="feature-card"><div class="feature-icon">📊</div><div class="feature-title">Confidence Metrics</div><div class="feature-text">Track knowledge accuracy alongside user-reported certainty percentages (0-100%) to flag structural bias and systematic gaps before testing.</div></div>', unsafe_allow_html=True)
 
@@ -354,6 +354,18 @@ elif st.session_state.current_view == "dashboard":
     if st.session_state.session_active:
         st.sidebar.markdown(f"Environment: **{st.session_state.selected_mode}**")
         st.sidebar.markdown(f"Allocation Target: **{st.session_state.selected_count} Items**")
+        
+        # Synchronous Countdown Evaluation Box
+        if st.session_state.selected_mode == "Exam Mode" and st.session_state.get("exam_end_timestamp"):
+            time_left = int(st.session_state.exam_end_timestamp - time.time())
+            if time_left <= 0:
+                st.sidebar.markdown("<div class='timer-sidebar'>🚨 TIME EXPIRED!</div>", unsafe_allow_html=True)
+                if st.session_state.current_exam and st.session_state.current_index < len(st.session_state.current_exam):
+                    st.session_state.current_index = len(st.session_state.current_exam)
+                    st.rerun()
+            else:
+                m, s = divmod(time_left, 60)
+                st.sidebar.markdown(f"<div class='timer-sidebar'>⏳ TIME LEFT: {m:02d}:{s:02d}</div>", unsafe_allow_html=True)
     
     app_mode = st.sidebar.radio("Console Navigation Matrix", ["Run Practice Exam", "Admin Content Manager"])
     
@@ -419,7 +431,7 @@ elif st.session_state.current_view == "dashboard":
                     st.session_state.selected_count = chosen_q_count
                     st.session_state.selected_mode = "Exam Mode"
                     st.session_state.session_active = True
-                    st.session_state.exam_end_timestamp = time.time() + (chosen_q_count * 62)
+                    st.session_state.exam_end_timestamp = time.time() + (chosen_q_count * 60)
                     st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
             
@@ -449,36 +461,9 @@ elif st.session_state.current_view == "dashboard":
                 idx = st.session_state.current_index
                 mode_setting = st.session_state.selected_mode
                 
-                # =============================================================
-                # DEFENSIVE EXAM STRUCTURAL BOUNDS CHECK
-                # =============================================================
-                # Force index stabilization to guarantee users never see blank screening layouts
                 if idx > len(exam) - 1 and len(exam) > 0:
                     st.session_state.current_index = len(exam)
                     idx = len(exam)
-
-                # =============================================================
-                # DECOUPLED STABLE STRUCTURAL COUNTDOWN TIMER
-                # =============================================================
-                if mode_setting == "Exam Mode":
-                    timer_container = st.empty()
-                    
-                    @st.fragment(run_every=1.0)
-                    def render_active_countdown_clock():
-                        end_time = st.session_state.get("exam_end_timestamp", time.time() + 60)
-                        time_left = int(end_time - time.time())
-                        
-                        if time_left <= 0:
-                            timer_container.markdown("<div class='timer-critical'>🚨 TIME EXPIRED! PLEASE TERMINATE AND GRADE NOW.</div>", unsafe_allow_html=True)
-                        else:
-                            m, s = divmod(time_left, 60)
-                            timer_container.markdown(f"<div class='timer-critical'>⏳ TIME REMAINING: {m:02d}:{s:02d}</div>", unsafe_allow_html=True)
-                    
-                    render_active_countdown_clock()
-
-                    if st.session_state.exam_end_timestamp and time.time() > st.session_state.exam_end_timestamp:
-                        st.session_state.current_index = len(exam)
-                        st.rerun()
 
                 if idx < len(exam):
                     q = exam[idx]
@@ -540,27 +525,43 @@ elif st.session_state.current_view == "dashboard":
                                     st.write(st.session_state.ai_response_cache[idx_cache_key])
                                     st.markdown("</div>", unsafe_allow_html=True)
                                 else:
-                                    llama_prompt = (
-                                        f"Analyze option path context concisely for Domain: {q['domain']}. "
-                                        f"Question: {q['question_text']}, Choice Key: {choice}, Correct: {q['correct_option']}. "
-                                        f"Rationale: {q['official_rationale']}."
-                                    )
                                     try:
-                                        with st.spinner("Core Nexus is computing analysis automatically..."):
-                                            response = ollama.chat(
-                                                model='llama3.2',
-                                                messages=[{'role': 'user', 'content': llama_prompt}]
+                                        with st.spinner("Core Nexus AWS Engine is computing analysis..."):
+                                            # Create runtime connection to Bedrock
+                                            bedrock = boto3.client(
+                                                service_name="bedrock-runtime",
+                                                aws_access_key_id=st.secrets["aws"]["AWS_ACCESS_KEY_ID"],
+                                                aws_secret_access_key=st.secrets["aws"]["AWS_SECRET_ACCESS_KEY"],
+                                                region_name=st.secrets["aws"]["AWS_DEFAULT_REGION"]
                                             )
-                                            st.session_state.ai_response_cache[idx_cache_key] = response['message']['content']
+                                            
+                                            llama_prompt = (
+                                                f"You are an expert (ISC)2 Certified in Cybersecurity mentor. Analyze option path context concisely for Domain: {q['domain']}. "
+                                                f"Question: {q['question_text']}, Choice Key: {choice}, Correct: {q['correct_option']}. "
+                                                f"Rationale: {q['official_rationale']}. Tell the student why their choice is correct or incorrect based on the syllabus guidelines."
+                                            )
+                                            
+                                            body_payload = json.dumps({
+                                                "prompt": f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{llama_prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+                                                "max_gen_len": 512,
+                                                "temperature": 0.4
+                                            })
+                                            
+                                            # Invoking Meta Llama 3.1 8B Instruct variant on AWS Bedrock catalog
+                                            response = bedrock.invoke_model(
+                                                modelId="meta.llama3-1-8b-instruct-v1:0",
+                                                body=body_payload
+                                            )
+                                            
+                                            response_body = json.loads(response.get('body').read())
+                                            ai_response_text = response_body.get('generation')
+                                            
+                                            st.session_state.ai_response_cache[idx_cache_key] = ai_response_text
                                         st.rerun()
-                                    except Exception:
+                                    except Exception as e:
                                         st.markdown("<div class='ai-box-offline'>", unsafe_allow_html=True)
-                                        st.markdown("### 📴 Engine Status: Offline")
-                                        st.write("Core Nexus is currently disconnected. To activate local mentoring:")
-                                        st.markdown("""
-                                        * Ensure the **Ollama Application** is running in your server task infrastructure.
-                                        * If deployed online, verify dynamic dynamic DNS mapping variables.
-                                        """)
+                                        st.markdown("### ❌ AWS Bedrock Access Exception")
+                                        st.write(f"Failed to communicate with AWS Core Engine: {str(e)}")
                                         st.markdown("</div>", unsafe_allow_html=True)
                             else:
                                 st.info("💡 *Select an answer choice to automatically trigger the Core Nexus AI mentor.*")
@@ -577,7 +578,7 @@ elif st.session_state.current_view == "dashboard":
                     else:
                         st.error(f"### Final Metric Result Score: {final_score}% — DOES NOT CONFORM TO PASSMARK")
                     
-                    with st.expander("🔍 Review Detailed Answer Key Logs + AI Explanations"):
+                    with st.expander("🔍 Review Detailed Answer Key Logs + Explanations"):
                         for i, q in enumerate(exam):
                             u_ans = st.session_state.user_answers.get(i, 'Unanswered')
                             status_symbol = "✅" if u_ans == q['correct_option'] else "❌"
