@@ -4,6 +4,8 @@ import random
 import time
 import hashlib
 import smtplib
+import json
+import streamlit.components.v1 as components
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from google import genai
@@ -11,7 +13,6 @@ from google import genai
 # =====================================================================
 # 1. CRYPTOGRAPHIC SECURITY & CONFIGURATION MATRIX
 # =====================================================================
-# Hardcoded fallback string: SHA-256 hash of "SUPER_SECRET_ADMIN_PORTAL"
 DEFAULT_FALLBACK_HASH = "64b7bd3b82736b009e992764f1e967a57fa85bd486a4387d85ef66bb8b6639c4"
 
 def get_admin_hash_target():
@@ -105,9 +106,42 @@ def init_db():
 init_db()
 
 # =====================================================================
-# 3. STREAMLIT CONFIGURATION & SESSION STATE
+# 3. STREAMLIT CONFIGURATION & SESSION STATE SYNC
 # =====================================================================
 st.set_page_config(page_title="(ISC)² CC Simulator Engine", page_icon="🛡️", layout="wide")
+
+# Persistent Login Handler via Browser LocalStorage
+def init_browser_session_sync():
+    if st.session_state.get("authenticated_user") is not None:
+        return
+
+    # Render hidden JavaScript bridge to inspect localStorage keys
+    storage_bridge = components.html(
+        """
+        <script>
+            const savedUser = localStorage.getItem("isc2_cc_session_user");
+            const savedAdmin = localStorage.getItem("isc2_cc_session_admin");
+            if (savedUser && savedAdmin) {
+                window.parent.postMessage({
+                    type: "streamlit:setComponentValue",
+                    value: JSON.stringify({username: savedUser, is_admin: savedAdmin === "true"})
+                }, "*");
+            }
+        </script>
+        """,
+        height=0
+    )
+    
+    if storage_bridge:
+        try:
+            stored_data = json.loads(storage_bridge)
+            st.session_state.is_admin = stored_data["is_admin"]
+            st.session_state.authenticated_user = stored_data["username"]
+            st.rerun()
+        except Exception:
+            pass
+
+init_browser_session_sync()
 
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
@@ -170,8 +204,23 @@ if st.session_state.authenticated_user is None:
                 conn.close()
                 
                 if row and row[0] == hash_password(login_pass):
-                    st.session_state.is_admin = verify_is_admin(login_user)
-                    st.session_state.authenticated_user = "PLATFORM_ADMIN" if st.session_state.is_admin else login_user
+                    is_admin_flag = verify_is_admin(login_user)
+                    resolved_user = "PLATFORM_ADMIN" if is_admin_flag else login_user
+                    
+                    # Inject JavaScript to save configuration strings to browser local storage
+                    components.html(
+                        f"""
+                        <script>
+                            localStorage.setItem("isc2_cc_session_user", "{resolved_user}");
+                            localStorage.setItem("isc2_cc_session_admin", "{str(is_admin_flag).lower()}");
+                            window.parent.location.reload();
+                        </script>
+                        """,
+                        height=0
+                    )
+                    
+                    st.session_state.is_admin = is_admin_flag
+                    st.session_state.authenticated_user = resolved_user
                     st.rerun()
                 else:
                     st.error("Access verification handshake dropped: Invalid Credentials.")
@@ -198,7 +247,6 @@ if st.session_state.authenticated_user is None:
             if not reg_user or not reg_email or not reg_pass or not recovery_a:
                 st.error("All configuration identity fields must be fully populated.")
             elif input_user_hash == current_target_hash or reg_user == "SUPER_SECRET_ADMIN_PORTAL":
-                # Protected Namespace: Matches custom secrets hash OR fallback string
                 st.error("Operation Denied: This administrative identity string namespace is reserved exclusively.")
             elif "@" not in reg_email or "." not in reg_email:
                 st.error("Please provide a syntactically valid email address structure.")
@@ -293,7 +341,19 @@ else:
     app_mode = st.sidebar.radio("Console Navigation Matrix", ["Run Practice Exam", "Admin Content Manager"])
     
     if st.sidebar.button("Log Out / Exit Portal Context", use_container_width=True):
+        # Wipe browser memory cache clean upon explicit exit request
+        components.html(
+            """
+            <script>
+                localStorage.removeItem("isc2_cc_session_user");
+                localStorage.removeItem("isc2_cc_session_admin");
+                window.parent.location.reload();
+            </script>
+            """,
+            height=0
+        )
         st.session_state.authenticated_user = None
+        st.session_state.is_admin = False
         st.session_state.current_exam = None
         st.session_state.session_active = False
         st.session_state.selected_mode = None
