@@ -16,7 +16,6 @@ def inject_session_persistence_engine():
     vault = get_global_session_vault()
 
     # Read the cookie value out of the official st.context.cookies dictionary
-    # It will look like a unique 13-digit string if set previously
     session_token = st.context.cookies.get("isc2_cc_session_token")
 
     # 1. READ PIPELINE: If memory was wiped but a valid tracking cookie exists
@@ -28,26 +27,30 @@ def inject_session_persistence_engine():
             st.session_state.current_view = "dashboard"
             st.rerun()
 
-    # 2. WRITE PIPELINE: If user just authenticated, write the cookie tracking token
+    # 2. WRITE PIPELINE: Keep browser storage updated when state changes
     else:
-        # If no cookie exists yet, we generate one and tell the browser to save it
+        user = st.session_state.authenticated_user
+        admin_flag = st.session_state.get("is_admin", False)
+        
         if not session_token:
             import time
             new_token = f"tok_{int(time.time() * 1000)}"
             
-            # Map the new token to our user data on the server side
+            # Map the new token to our user data on the server side immediately
             vault[new_token] = {
-                "user": st.session_state.authenticated_user,
-                "is_admin": st.session_state.get("is_admin", False)
+                "user": user,
+                "is_admin": admin_flag
             }
             
             # Inject background JavaScript to set a clean browser-level cookie
-            # Max-Age=86400 keeps it alive for 24 hours
+            # We add a 50ms delay before reloading to prevent the login bounce race condition!
             components.html(
                 f"""
                 <script>
                     document.cookie = "isc2_cc_session_token={new_token}; path=/; max-age=86400; SameSite=Lax";
-                    window.parent.location.reload();
+                    setTimeout(function() {{
+                        window.parent.location.reload();
+                    }}, 50);
                 </script>
                 """,
                 height=0
@@ -55,8 +58,8 @@ def inject_session_persistence_engine():
         else:
             # Keep the token record actively synced up in the server vault
             vault[session_token] = {
-                "user": st.session_state.authenticated_user,
-                "is_admin": st.session_state.get("is_admin", False)
+                "user": user,
+                "is_admin": admin_flag
             }
 
 def execute_secure_logout():
@@ -81,7 +84,9 @@ def execute_secure_logout():
         """
         <script>
             document.cookie = "isc2_cc_session_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;";
-            window.parent.location.reload();
+            setTimeout(function() {{
+                window.parent.location.reload();
+            }}, 50);
         </script>
         """,
         height=0
