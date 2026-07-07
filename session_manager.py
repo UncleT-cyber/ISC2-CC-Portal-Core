@@ -1,57 +1,74 @@
 import streamlit as st
-import time
+import streamlit.components.v1 as components
 
 @st.cache_resource
-def get_server_session_storage():
+def get_global_session_vault():
     """
-    Creates an isolated server-side memory dictionary that persists 
-    even when browser tabs are hard-refreshed or iframes wipe states.
+    A persistent dictionary in server RAM to map a cookie UUID to user records.
     """
     return {}
 
 def inject_session_persistence_engine():
     """
-    Tracks sessions using a combination of a persistent cookie-like browser key 
-    and server-side resource caching. Safe against Streamlit Cloud iframe resets.
+    Leverages a native browser cookie wrapper to fetch or assign session tokens, 
+    matching them seamlessly with the server vault across hard page reloads.
     """
-    # Initialize our server-side vault
-    vault = get_server_session_storage()
-    
-    # Check if this specific browser session already has an initialized tracking key
-    if "browser_session_key" not in st.session_state:
-        # Create a unique tracking key for this user window based on the timestamp
-        st.session_state.browser_session_key = f"sess_{int(time.time() * 1000)}"
-    
-    session_key = st.session_state.browser_session_key
+    vault = get_global_session_vault()
 
-    # 1. READ PIPELINE: If a refresh wiped the memory, check the server vault
+    # Read the cookie value out of the official st.context.cookies dictionary
+    # It will look like a unique 13-digit string if set previously
+    session_token = st.context.cookies.get("isc2_cc_session_token")
+
+    # 1. READ PIPELINE: If memory was wiped but a valid tracking cookie exists
     if st.session_state.get("authenticated_user") is None:
-        if session_key in vault:
-            saved_session = vault[session_key]
-            st.session_state.authenticated_user = saved_session["user"]
-            st.session_state.is_admin = saved_session["is_admin"]
+        if session_token and session_token in vault:
+            saved_data = vault[session_token]
+            st.session_state.authenticated_user = saved_data["user"]
+            st.session_state.is_admin = saved_data["is_admin"]
             st.session_state.current_view = "dashboard"
             st.rerun()
 
-    # 2. WRITE PIPELINE: Keep the server vault updated if the user is logged in
+    # 2. WRITE PIPELINE: If user just authenticated, write the cookie tracking token
     else:
-        vault[session_key] = {
-            "user": st.session_state.authenticated_user,
-            "is_admin": st.session_state.get("is_admin", False)
-        }
+        # If no cookie exists yet, we generate one and tell the browser to save it
+        if not session_token:
+            import time
+            new_token = f"tok_{int(time.time() * 1000)}"
+            
+            # Map the new token to our user data on the server side
+            vault[new_token] = {
+                "user": st.session_state.authenticated_user,
+                "is_admin": st.session_state.get("is_admin", False)
+            }
+            
+            # Inject background JavaScript to set a clean browser-level cookie
+            # Max-Age=86400 keeps it alive for 24 hours
+            components.html(
+                f"""
+                <script>
+                    document.cookie = "isc2_cc_session_token={new_token}; path=/; max-age=86400; SameSite=Lax";
+                    window.parent.location.reload();
+                </script>
+                """,
+                height=0
+            )
+        else:
+            # Keep the token record actively synced up in the server vault
+            vault[session_token] = {
+                "user": st.session_state.authenticated_user,
+                "is_admin": st.session_state.get("is_admin", False)
+            }
 
 def execute_secure_logout():
     """
-    Purges memory structures completely from both server storage and local memory state.
+    Wipes the session values out of server vault and clears out the browser cookie.
     """
-    vault = get_server_session_storage()
-    session_key = st.session_state.get("browser_session_key")
+    vault = get_global_session_vault()
+    session_token = st.context.cookies.get("isc2_cc_session_token")
     
-    # Clear the server record
-    if session_key and session_key in vault:
-        del vault[session_key]
+    if session_token and session_token in vault:
+        del vault[session_token]
         
-    # Reset local states
     st.session_state.authenticated_user = None
     st.session_state.is_admin = False
     st.session_state.current_exam = None
@@ -59,4 +76,13 @@ def execute_secure_logout():
     st.session_state.selected_mode = None
     st.session_state.current_view = "landing"
     
-    st.rerun()
+    # Overwrite cookie with an immediate expiration date to delete it instantly
+    components.html(
+        """
+        <script>
+            document.cookie = "isc2_cc_session_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;";
+            window.parent.location.reload();
+        </script>
+        """,
+        height=0
+    )
