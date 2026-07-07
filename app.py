@@ -21,7 +21,6 @@ def get_admin_hash_target():
 
 def verify_is_admin(input_username):
     cleaned_name = str(input_username).strip().upper()
-    # HARD FORCED BYPASS: Explicitly guarantee NEXUS_ADMIN gets full master status
     if cleaned_name in ["NEXUS_ADMIN", "PLATFORM_ADMIN", "GLOBAL_ADMIN"]:
         return True
     hashed_input = hashlib.sha256(cleaned_name.encode()).hexdigest()
@@ -98,6 +97,16 @@ def init_db():
             official_rationale TEXT
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS exam_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            is_correct INTEGER NOT NULL,
+            confidence_level INTEGER NOT NULL,
+            timestamp REAL NOT NULL
+        )
+    """)
     
     cursor.execute("SELECT 1 FROM user_registry WHERE username = 'NEXUS_ADMIN'")
     if not cursor.fetchone():
@@ -154,7 +163,6 @@ if "selected_count" not in st.session_state:
 if "selected_mode" not in st.session_state:
     st.session_state.selected_mode = None
 
-# Global Dynamic Runtime Check: Sync admin status based on active user node name
 if st.session_state.authenticated_user is not None:
     st.session_state.current_view = "dashboard"
     if verify_is_admin(st.session_state.authenticated_user):
@@ -175,24 +183,32 @@ st.markdown("""
     
     .hero-container {
         text-align: center;
-        padding: 5rem 2rem 4rem 2rem;
+        padding: 4rem 2rem;
         background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
         border-radius: 16px;
         margin-bottom: 2.5rem;
         border: 1px solid #1e293b;
         box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     }
-    .hero-title { font-size: 3.6rem; font-weight: 800; color: #ffffff !important; margin-bottom: 1rem; letter-spacing: -1px; }
-    .hero-subtitle { font-size: 1.35rem; color: #e2e8f0 !important; max-width: 800px; margin: 0 auto 1.5rem auto; line-height: 1.6; }
+    .hero-title { font-size: 3.6rem; font-weight: 800; color: #ffffff !important; margin-bottom: 1rem; letter-spacing: -1px; display: flex; justify-content: center; align-items: center; gap: 15px; }
+    .hero-subtitle { font-size: 1.35rem; color: #e2e8f0 !important; max-width: 850px; margin: 0 auto 1rem auto; line-height: 1.6; }
+    
+    .disclaimer-badge {
+        background-color: #451a1a; color: #fca5a5; border: 1px solid #7f1d1d;
+        padding: 0.4rem 1rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;
+        display: inline-block; margin-bottom: 1.5rem; letter-spacing: 0.5px;
+    }
+    
+    .feature-grid-title { font-size: 2.2rem; font-weight: 700; color: #ffffff !important; margin-bottom: 2rem; margin-top: 1rem; }
     
     .feature-card {
-        background-color: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #334155;
+        background-color: #1e293b; padding: 1.8rem; border-radius: 12px; border: 1px solid #334155;
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); transition: transform 0.2s ease, border-color 0.2s ease;
-        height: 280px; margin-bottom: 1rem;
+        height: 290px; margin-bottom: 1rem;
     }
     .feature-card:hover { transform: translateY(-5px); border-color: #2563eb; }
     .feature-icon { font-size: 2.3rem; margin-bottom: 1rem; }
-    .feature-title { font-size: 1.25rem; font-weight: 700; color: #ffffff !important; margin-bottom: 0.5rem; }
+    .feature-title { font-size: 1.25rem; font-weight: 700; color: #ffffff !important; margin-bottom: 0.7rem; }
     .feature-text { font-size: 0.95rem; color: #cbd5e1 !important; line-height: 1.5; }
     
     .isc2-header { color: #22c55e !important; font-weight: 800; font-size: 2.6rem; text-align: center; margin-bottom: 0.2rem; }
@@ -206,52 +222,25 @@ st.markdown("""
     .dashboard-box { background: #1e293b; padding: 2.5rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); border-top: 6px solid #22c55e; max-width: 800px; margin: 2rem auto; color: #f8fafc !important; }
     .timer-sidebar { background-color: #7f1d1d; border: 1px solid #f87171; color: #fca5a5 !important; padding: 0.8rem; border-radius: 8px; font-weight: 800; text-align: center; font-size: 1.1rem; margin: 1rem 0; }
     
-    /* Force visibility across standard buttons */
-    div.stButton > button {
-        color: #0f172a !important;
-        background-color: #ffffff !important;
-        border: 2px solid #cbd5e1 !important;
-        font-weight: 700 !important;
-        opacity: 1 !important;
-    }
-    div.stButton > button p {
-        color: #0f172a !important;
-        font-weight: 700 !important;
-    }
-    div.stButton > button:hover {
-        color: #2563eb !important;
-        border-color: #2563eb !important;
-        background-color: #f8fafc !important;
-    }
-    div.stButton > button:hover p {
-        color: #2563eb !important;
-    }
-    
-    /* Primary Action Buttons Override */
-    div.stButton > button[kind="primary"] {
-        background-color: #2563eb !important;
-        color: #ffffff !important;
-        border: none !important;
-    }
-    div.stButton > button[kind="primary"] p {
-        color: #ffffff !important;
-    }
+    .metric-badge { padding: 0.4rem 0.8rem; border-radius: 6px; font-weight: bold; font-size: 0.9rem; margin-top: 0.5rem; display: inline-block; }
+    .badge-danger { background-color: #7f1d1d; color: #fca5a5; border: 1px solid #ef4444; }
+    .badge-warning { background-color: #78350f; color: #fde68a; border: 1px solid #f59e0b; }
+    .badge-success { background-color: #064e3b; color: #a7f3d0; border: 1px solid #10b981; }
 
-    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp p:not(button p), .stApp label, .stApp span:not([data-baseweb="tab"]) {
-        color: #f8fafc !important;
+    div.stButton > button {
+        color: #0f172a !important; background-color: #ffffff !important;
+        border: 2px solid #cbd5e1 !important; font-weight: 700 !important; opacity: 1 !important;
     }
+    div.stButton > button p { color: #0f172a !important; font-weight: 700 !important; }
+    div.stButton > button:hover { color: #2563eb !important; border-color: #2563eb !important; background-color: #f8fafc !important; }
+    div.stButton > button:hover p { color: #2563eb !important; }
     
-    div[data-baseweb="tab-list"] button p {
-        color: #cbd5e1 !important;
-    }
-    div[data-baseweb="tab-list"] button[aria-selected="true"] p {
-        color: #3b82f6 !important;
-        font-weight: bold !important;
-    }
-    
-    div[data-baseweb="input"] input, div[data-baseweb="select"] div {
-        color: #f8fafc !important;
-    }
+    div.stButton > button[kind="primary"] { background-color: #2563eb !important; color: #ffffff !important; border: none !important; }
+    div.stButton > button[kind="primary"] p { color: #ffffff !important; }
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp p:not(button p), .stApp label, .stApp span:not([data-baseweb="tab"]) { color: #f8fafc !important; }
+    div[data-baseweb="tab-list"] button p { color: #cbd5e1 !important; }
+    div[data-baseweb="tab-list"] button[aria-selected="true"] p { color: #3b82f6 !important; font-weight: bold !important; }
+    div[data-baseweb="input"] input, div[data-baseweb="select"] div { color: #f8fafc !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -263,12 +252,13 @@ if st.session_state.current_view == "landing":
         <div class="hero-container">
             <div class="hero-title">🛡️ ISC² CC Training Core</div>
             <div class="hero-subtitle">
-                Learn cybersecurity the smart way — practice questions, mock exams, and cloud-native AI mentoring engineered into one ecosystem.
+                Learn cybersecurity the smart way — practice questions, mock exams, and cloud-native mentoring engineered into one ecosystem.
             </div>
-        </div>
+            <div class="disclaimer-badge">⚠️ UNOFFICIAL COMMUNITY-ENGINEERED PLATFORM — NOT AFFILIATED WITH ISC²</div>
+            <div style="margin-top: 1rem;">
     """, unsafe_allow_html=True)
-
-    col_btn1, col_btn2, _ = st.columns([2, 2, 4])
+    
+    col_btn1, col_btn2, _ = st.columns([2.5, 2.5, 7])
     with col_btn1:
         if st.button("🟢 Get Started / Register", use_container_width=True, type="primary", key="landing_reg_btn"):
             st.session_state.current_view = "auth"
@@ -277,19 +267,44 @@ if st.session_state.current_view == "landing":
         if st.button("🔵 Log In To Dashboard", use_container_width=True, key="landing_login_btn"):
             st.session_state.current_view = "auth"
             st.rerun()
+            
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("## ✨ Engineered Platform Capabilities")
-    
-    feat_col1, feat_col2, feat_col3, feat_col4 = st.columns(4)
-    with feat_col1:
-        st.markdown('<div class="feature-card"><div class="feature-icon">🧠</div><div class="feature-title">AWS Bedrock Tutoring</div><div class="feature-text">Powered securely by AWS cloud intelligence infrastructure. Get contextual option teardowns and domain syllabus rationales inside the sandbox.</div></div>', unsafe_allow_html=True)
-    with feat_col2:
-        st.markdown('<div class="feature-card"><div class="feature-icon">📝</div><div class="feature-title">Custom Question Pools</div><div class="feature-text">Build your own security database schema. Add customized domain vectors that integrate directly with your study runs.</div></div>', unsafe_allow_html=True)
-    with feat_col3:
-        st.markdown('<div class="feature-card"><div class="feature-icon">⏱️</div><div class="feature-title">High-Fidelity Mocks</div><div class="feature-text">Simulate strict exam environments. Randomized question delivery vectors, disabled AI coaches, and standalone countdown state synchronization.</div></div>', unsafe_allow_html=True)
-    with feat_col4:
-        st.markdown('<div class="feature-card"><div class="feature-icon">📊</div><div class="feature-title">Confidence Metrics</div><div class="feature-text">Track knowledge accuracy alongside user-reported certainty percentages (0-100%) to flag structural bias and systematic gaps before testing.</div></div>', unsafe_allow_html=True)
+    st.markdown("<div class='feature-grid-title'>✨ Engineered Platform Capabilities</div>", unsafe_allow_html=True)
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown("""
+            <div class="feature-card">
+                <div class="feature-icon">🧠</div>
+                <div class="feature-title">AWS Bedrock Tutoring</div>
+                <div class="feature-text">Powered securely by AWS cloud intelligence infrastructure. Get contextual option teardowns and domain syllabus rationales inside the sandbox.</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with col2:
+        st.markdown("""
+            <div class="feature-card">
+                <div class="feature-icon">📝</div>
+                <div class="feature-title">Custom Question Pools</div>
+                <div class="feature-text">Build your own security database schema. Add customized domain vectors that integrate directly with your study runs.</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with col3:
+        st.markdown("""
+            <div class="feature-card">
+                <div class="feature-icon">⏱️</div>
+                <div class="feature-title">High-Fidelity Mocks</div>
+                <div class="feature-text">Simulate strict exam environments. Randomized question delivery vectors, disabled AI coaches, and standalone countdown state synchronization.</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with col4:
+        st.markdown("""
+            <div class="feature-card">
+                <div class="feature-icon">📊</div>
+                <div class="feature-title">Confidence Metrics</div>
+                <div class="feature-text">Track knowledge accuracy alongside user-reported certainty percentages (0-100%) to flag structural bias and systematic gaps before testing.</div>
+            </div>
+        """, unsafe_allow_html=True)
 
 elif st.session_state.current_view == "auth":
     if st.button("⬅️ Back to Landing Page", key="back_to_landing"):
@@ -449,7 +464,6 @@ elif st.session_state.current_view == "dashboard":
         else:
             st.info("👤 Private Sandbox Mode: Added items will save to your profile folder exclusively.")
         
-        # FEATURE TABBING MATRIX: Split into Add and Drop Nodes
         mgmt_tab1, mgmt_tab2 = st.tabs(["➕ Add New Blueprint Question", "🗑️ Drop / Delete Questions"])
         
         with mgmt_tab1:
@@ -487,7 +501,6 @@ elif st.session_state.current_view == "dashboard":
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Admins view all database records; standard profiles view their matching private sandbox IDs
             if is_admin_session:
                 cursor.execute("SELECT * FROM question_pool")
             else:
@@ -500,17 +513,14 @@ elif st.session_state.current_view == "dashboard":
                 st.info("No query tracks match your active authorization footprint.")
             else:
                 st.write(f"Total Available Selection Nodes: **{len(available_questions)}**")
-                
                 for single_q in available_questions:
                     with st.container():
                         q_id = single_q['id']
                         col_q_info, col_q_action = st.columns([6, 2])
-                        
                         with col_q_info:
                             st.markdown(f"**[{single_q['domain']}]** (Owner Context: `{single_q['user_id']}`)")
                             st.write(single_q['question_text'])
                         with col_q_action:
-                            # Unique delete execution path per entry node
                             if st.button("🚨 Purge Node", key=f"del_btn_{q_id}", use_container_width=True):
                                 conn = sqlite3.connect(DB_FILE)
                                 cursor = conn.cursor()
@@ -534,20 +544,102 @@ elif st.session_state.current_view == "dashboard":
             st.write("---")
             st.markdown("#### Select Active Environment Simulation Profile Mode:")
             
-            col_dash_p, col_dash_e = st.columns(2)
+            col_dash_p, col_dash_e, col_dash_v = st.columns(3)
             with col_dash_p:
-                if st.button("📖 Launch Practice Session Lounge", use_container_width=True):
+                if st.button("📖 Practice Mode Lounge", use_container_width=True):
                     st.session_state.selected_count = chosen_q_count
                     st.session_state.selected_mode = "Practice Mode"
                     st.session_state.session_active = True
                     st.rerun()
             with col_dash_e:
-                if st.button("⚡ Launch High-Fidelity Examination Sandbox", use_container_width=True):
+                if st.button("⚡ High-Fidelity Sandbox", use_container_width=True):
                     st.session_state.selected_count = chosen_q_count
                     st.session_state.selected_mode = "Exam Mode"
                     st.session_state.session_active = True
                     st.session_state.exam_end_timestamp = time.time() + (chosen_q_count * 60)
                     st.rerun()
+            
+            with col_dash_v:
+                if st.button("🧠 Target My Vulnerabilities", use_container_width=True, type="primary"):
+                    st.session_state.show_analytics_dashboard = not st.session_state.get("show_analytics_dashboard", False)
+
+            # --- INTELLIGENT COGNITIVE ADVANCED ANALYTICS ---
+            if st.session_state.get("show_analytics_dashboard", False):
+                st.markdown("---")
+                st.markdown("### 🧠 Advanced Cognitive Blueprint Analysis")
+                
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT domain, 
+                           COUNT(*) as total, 
+                           SUM(is_correct) as correct,
+                           AVG(confidence_level) as avg_conf,
+                           SUM(CASE WHEN is_correct = 0 AND confidence_level >= 70 THEN 1 ELSE 0 END) as blind_spots
+                    FROM exam_history 
+                    WHERE user_id = ? 
+                    GROUP BY domain
+                """, (current_user,))
+                rows = cursor.fetchall()
+                conn.close()
+                
+                if not rows:
+                    st.info("💡 **No performance metrics historical data found!** Complete a normal practice or high-fidelity sandbox run first so the system can track your metrics.")
+                else:
+                    col_analytics_title, col_analytics_clear = st.columns([8, 4])
+                    with col_analytics_title:
+                        st.write("Systemic distribution profile balancing metric accuracy with subjective confidence tracking:")
+                    with col_analytics_clear:
+                        if st.button("🗑️ Reset My Telemetry Data", use_container_width=True):
+                            conn = sqlite3.connect(DB_FILE)
+                            cursor = conn.cursor()
+                            cursor.execute("DELETE FROM exam_history WHERE user_id = ?", (current_user,))
+                            conn.commit()
+                            conn.close()
+                            st.success("History purged! Reloading engine...")
+                            time.sleep(1)
+                            st.rerun()
+                    
+                    domain_vulnerability_weights = {}
+                    
+                    for row in rows:
+                        domain_name = row[0]
+                        total = row[1]
+                        correct = row[2]
+                        avg_conf = int(row[3])
+                        blind_spots = row[4]
+                        
+                        failed = total - correct
+                        pass_percentage = int((correct / total) * 100)
+                        
+                        # Dynamic Risk Formula: heavily weight failure coupled with high misplaced confidence
+                        vulnerability_score = (100 - pass_percentage) + (blind_spots * 20) - (total * 0.5)
+                        domain_vulnerability_weights[domain_name] = vulnerability_score
+                        
+                        col_dom, col_progress, col_metrics = st.columns([4, 4, 4])
+                        with col_dom:
+                            st.markdown(f"**{domain_name}**")
+                        with col_progress:
+                            st.progress(float(correct / total))
+                        with col_metrics:
+                            status_text = f"{pass_percentage}% Pass | Conf: {avg_conf}%"
+                            if blind_spots > 0:
+                                status_text += f" | ⚠️ {blind_spots} Blind Spots"
+                                
+                            if pass_percentage >= 70 and blind_spots == 0:
+                                st.markdown(f"🟢 **Optimized** ({status_text})")
+                            elif pass_percentage >= 50 or blind_spots > 0:
+                                st.markdown(f"🟡 **Dissonance Warning** ({status_text})")
+                            else:
+                                st.markdown(f"🔴 **Critical Focus Required** ({status_text})")
+                    
+                    smart_weakest_domain = max(domain_vulnerability_weights, key=domain_vulnerability_weights.get)
+                    
+                    st.markdown("---")
+                    st.markdown(f"""
+                        > 🎯 **Nexus Focus Advisory:** The diagnostic matrix highlights **{smart_weakest_domain}** as your primary cognitive risk zone. 
+                        > This selection isn't just based on raw misses—it accounts for areas where you are guessing blindly or demonstrating high confidence in incorrect answers. Target this objective next.
+                    """)
             st.markdown("</div>", unsafe_allow_html=True)
             
             st.markdown("<div class='dashboard-box'>", unsafe_allow_html=True)
@@ -602,7 +694,7 @@ elif st.session_state.current_view == "dashboard":
                     st.session_state.ai_response_cache = {}
                     st.rerun()
                 else:
-                    st.warning("No questions found tracking within your workspace context scopes.")
+                    st.warning("No questions found tracking within your specified domain scope.")
                     st.session_state.session_active = False
             else:
                 exam = st.session_state.current_exam
@@ -707,26 +799,77 @@ elif st.session_state.current_view == "dashboard":
                             else:
                                 st.info("💡 *Select an answer choice to engage the interactive AI mentor.*")
                         else:
-                            st.caption("🔒 *AI training assistance disabled during formal Exam Mode conditions.*")
+                            st.caption("🔒 *AI training assistance disabled during formal timed conditions.*")
                 else:
                     st.subheader("📊 Session Processing Complete: System Audit Summary")
                     correct_tally = sum(1 for i, q in enumerate(exam) if st.session_state.user_answers.get(i, None) == q['correct_option'])
                     final_score = int((correct_tally / len(exam)) * 100) if len(exam) > 0 else 0
                     
+                    conn = sqlite3.connect(DB_FILE)
+                    cursor = conn.cursor()
+                    for i, q in enumerate(exam):
+                        user_ans = st.session_state.user_answers.get(i, None)
+                        is_correct = 1 if user_ans == q['correct_option'] else 0
+                        confidence = st.session_state.user_confidence.get(i, 0)
+                        cursor.execute("""
+                            INSERT INTO exam_history (user_id, domain, is_correct, confidence_level, timestamp)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (current_user, q['domain'], is_correct, confidence, time.time()))
+                    conn.commit()
+                    conn.close()
+
                     if final_score >= 70:
                         st.balloons()
                         st.success(f"### Final Metric Result Score: {final_score}% — PROVISIONALLY PASSED")
                     else:
                         st.error(f"### Final Metric Result Score: {final_score}% — DOES NOT CONFORM TO PASSMARK")
                     
-                    with st.expander("🔍 Review Detailed Answer Key Logs"):
+                    st.markdown("### 📊 Cognitive Accuracy Matrix Analysis")
+                    st.info("This system maps your subjective confidence alongside actual database validation rules to highlight blind spots.")
+                    
+                    dissonance_tab1, dissonance_tab2 = st.tabs(["⚠️ Critical Blind Spots (High Conf / Wrong)", "🔍 Full Audit Review Ledger"])
+                    
+                    with dissonance_tab1:
+                        blind_spots_found = 0
                         for i, q in enumerate(exam):
                             u_ans = st.session_state.user_answers.get(i, 'Unanswered')
-                            status_symbol = "✅" if u_ans == q['correct_option'] else "❌"
-                            st.markdown(f"**Question {i+1}: {status_symbol} (Confidence: {st.session_state.user_confidence.get(i, 0)}%)**")
-                            st.write(q['question_text'])
-                            st.write(f"* Your Choice: **{u_ans}** | Correct Key: **{q['correct_option']}**")
-                            st.write("---")
+                            conf = st.session_state.user_confidence.get(i, 0)
+                            
+                            if u_ans != q['correct_option'] and conf >= 70:
+                                blind_spots_found += 1
+                                st.markdown(f"""
+                                <div style='background-color:#451a1a; padding:1rem; border-radius:6px; margin-bottom:1rem; border-left:5px solid #ef4444;'>
+                                    <strong>🚨 DANGEROUS OVERCONFIDENCE BLIND SPOT IN: {q['domain']}</strong><br>
+                                    <em>Question:</em> {q['question_text']}<br>
+                                    Your Choice: <span style='color:#fca5a5; font-weight:bold;'>{u_ans}</span> | Correct Answer Key: <span style='color:#a7f3d0; font-weight:bold;'>{q['correct_option']}</span><br>
+                                    Your Stated Confidence: <span style='color:#ef4444; font-weight:bold;'>{conf}%</span><br>
+                                    <strong>Syllabus Rationale:</strong> {q['official_rationale']}
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                        if blind_spots_found == 0:
+                            if final_score >= 70:
+                                st.success("✨ Zero high-confidence blind spots detected! Your accuracy scales cleanly alongside your confidence metrics.")
+                            else:
+                                st.warning("⚠️ No high-confidence blind spots detected, meaning you accurately predicted your low scores. However, your knowledge baseline across these domains requires significant expansion before exam day.")
+                    
+                    with dissonance_tab2:
+                        for i, q in enumerate(exam):
+                            u_ans = st.session_state.user_answers.get(i, 'Unanswered')
+                            conf = st.session_state.user_confidence.get(i, 0)
+                            is_correct = (u_ans == q['correct_option'])
+                            
+                            col_led1, col_led2 = st.columns([6, 2])
+                            with col_led1:
+                                st.markdown(f"**Question {i+1}:** {q['question_text']}")
+                                st.write(f"* Your Choice: **{u_ans}** | Correct Key: **{q['correct_option']}**")
+                            with col_led2:
+                                if is_correct:
+                                    st.markdown("<span class='metric-badge badge-success'>✅ CORRECT</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("<span class='metric-badge badge-danger'>❌ INCORRECT</span>", unsafe_allow_html=True)
+                                st.markdown(f"<span class='metric-badge badge-warning'>💡 Confidence: {conf}%</span>", unsafe_allow_html=True)
+                            st.markdown("---")
 
                     if st.button("Return to Dashboard Matrix", use_container_width=True):
                         st.session_state.current_exam = None
