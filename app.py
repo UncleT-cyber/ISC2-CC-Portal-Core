@@ -26,23 +26,37 @@ def verify_is_admin(input_username):
 def hash_password(plain_text_pass):
     return hashlib.sha256(plain_text_pass.strip().encode()).hexdigest()
 
+def play_audio_feedback(is_success=True):
+    frequency = 587.33 if is_success else 220.0  
+    duration = 0.15 if is_success else 0.4
+    components.html(f"""
+        <script>
+        var context = new (window.AudioContext || window.webkitAudioContext)();
+        var osc = context.createOscillator();
+        var gain = context.createGain();
+        osc.type = '{'sine' if is_success else 'sawtooth'}';
+        osc.frequency.setValueAtTime({frequency}, context.currentTime);
+        gain.gain.setValueAtTime(0.1, context.currentTime);
+        osc.connect(gain);
+        gain.connect(context.destination);
+        osc.start();
+        setTimeout(function() {{ osc.stop(); }}, {duration * 1000});
+        </script>
+    """, height=0)
+
 def send_smtp_email(recipient_email, subject, html_content):
     smtp_config = st.secrets.get("smtp", {})
     if not smtp_config:
         return False
-        
     try:
         msg = MIMEMultipart()
         msg['From'] = smtp_config["SENDER_EMAIL"]
         msg['To'] = recipient_email
         msg['Subject'] = subject
-        
         msg.attach(MIMEText(html_content, 'html'))
-        
         server = smtplib.SMTP(smtp_config["SERVER"], int(smtp_config["PORT"]))
         server.starttls() 
         server.login(smtp_config["USERNAME"], smtp_config["PASSWORD"])
-        
         server.sendmail(smtp_config["SENDER_EMAIL"], recipient_email, msg.as_string())
         server.quit()
         return True
@@ -101,7 +115,6 @@ init_db()
 # =====================================================================
 st.set_page_config(page_title="(ISC)² CC Simulator Engine", page_icon="🛡️", layout="wide")
 
-# Persistent state initialization
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
 if "is_admin" not in st.session_state:
@@ -127,10 +140,8 @@ if "selected_count" not in st.session_state:
 if "selected_mode" not in st.session_state:
     st.session_state.selected_mode = None
 
-# Synchronize session state parameters instantly via local storage manager
 inject_session_persistence_engine()
 
-# Defensively handle view router assignments to block refresh-induced logouts
 try:
     q_params = dict(st.query_params)
 except Exception:
@@ -139,7 +150,7 @@ except Exception:
 if st.session_state.authenticated_user is not None or "rec_u" in q_params:
     st.session_state.current_view = "dashboard"
 
-# CSS Styling Matrices
+# High-Contrast Cross-Theme Stylesheet (Patched Contrast Leaks)
 st.markdown("""
     <style>
     .stApp { background-color: #0f172a; color: #f8fafc; }
@@ -153,8 +164,8 @@ st.markdown("""
         border: 1px solid #1e293b;
         box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     }
-    .hero-title { font-size: 3.6rem; font-weight: 800; color: #ffffff; margin-bottom: 1rem; letter-spacing: -1px; }
-    .hero-subtitle { font-size: 1.35rem; color: #94a3b8; max-width: 800px; margin: 0 auto 1.5rem auto; line-height: 1.6; }
+    .hero-title { font-size: 3.6rem; font-weight: 800; color: #ffffff !important; margin-bottom: 1rem; letter-spacing: -1px; }
+    .hero-subtitle { font-size: 1.35rem; color: #e2e8f0 !important; max-width: 800px; margin: 0 auto 1.5rem auto; line-height: 1.6; }
     
     .feature-card {
         background-color: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #334155;
@@ -163,26 +174,76 @@ st.markdown("""
     }
     .feature-card:hover { transform: translateY(-5px); border-color: #2563eb; }
     .feature-icon { font-size: 2.3rem; margin-bottom: 1rem; }
-    .feature-title { font-size: 1.25rem; font-weight: 700; color: #ffffff; margin-bottom: 0.5rem; }
-    .feature-text { font-size: 0.95rem; color: #94a3b8; line-height: 1.5; }
+    .feature-title { font-size: 1.25rem; font-weight: 700; color: #ffffff !important; margin-bottom: 0.5rem; }
+    .feature-text { font-size: 0.95rem; color: #cbd5e1 !important; line-height: 1.5; }
     
-    .isc2-header { color: #22c55e; font-weight: 800; font-size: 2.6rem; text-align: center; margin-bottom: 0.2rem; }
-    .isc2-subheader { color: #94a3b8; font-size: 1rem; text-align: center; font-weight: 600; margin-bottom: 2rem; letter-spacing: 1px; }
-    .card { background-color: #1e293b; padding: 1.8rem; border-radius: 8px; border-left: 5px solid #22c55e; box-shadow: 0 4px 10px rgba(0,0,0,0.2); color: #f8fafc; margin-bottom: 1rem; }
+    .isc2-header { color: #22c55e !important; font-weight: 800; font-size: 2.6rem; text-align: center; margin-bottom: 0.2rem; }
+    .isc2-subheader { color: #cbd5e1 !important; font-size: 1rem; text-align: center; font-weight: 600; margin-bottom: 2rem; letter-spacing: 1px; }
+    .card { background-color: #1e293b; padding: 1.8rem; border-radius: 8px; border-left: 5px solid #22c55e; box-shadow: 0 4px 10px rgba(0,0,0,0.2); color: #f8fafc !important; margin-bottom: 1rem; }
     
-    .ai-box { background-color: #1e293b; padding: 1.5rem; border-radius: 8px; border-left: 5px solid #0284c7; color: #f8fafc; border: 1px solid #334155; }
-    .ai-box-offline { background-color: #2d1a1a; padding: 1.5rem; border-radius: 8px; border-left: 5px solid #ef4444; color: #fca5a5; border: 1px solid #451a1a; }
+    .ai-box { background-color: #1e293b; padding: 1.5rem; border-radius: 8px; border-left: 5px solid #0284c7; color: #f8fafc !important; border: 1px solid #334155; }
+    .ai-box-offline { background-color: #2d1a1a; padding: 1.5rem; border-radius: 8px; border-left: 5px solid #ef4444; color: #fca5a5 !important; border: 1px solid #451a1a; }
     
-    .login-box { background: #1e293b; padding: 2.5rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); border-top: 6px solid #22c55e; max-width: 650px; margin: 3rem auto; color: #f8fafc; }
+    .login-box { background: #1e293b; padding: 2.5rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); border-top: 6px solid #22c55e; max-width: 650px; margin: 3rem auto; color: #f8fafc !important; }
+    .dashboard-box { background: #1e293b; padding: 2.5rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); border-top: 6px solid #22c55e; max-width: 800px; margin: 2rem auto; color: #f8fafc !important; }
+    .timer-sidebar { background-color: #7f1d1d; border: 1px solid #f87171; color: #fca5a5 !important; padding: 0.8rem; border-radius: 8px; font-weight: 800; text-align: center; font-size: 1.1rem; margin: 1rem 0; }
     
-    .dashboard-box { background: #1e293b; padding: 2.5rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); border-top: 6px solid #22c55e; max-width: 800px; margin: 2rem auto; color: #f8fafc; }
-    .timer-sidebar { background-color: #7f1d1d; border: 1px solid #f87171; color: #fca5a5; padding: 0.8rem; border-radius: 8px; font-weight: 800; text-align: center; font-size: 1.1rem; margin: 1rem 0; }
+    /* CRITICAL CONTRAST FIXES: Force visibility across ALL standard button profiles */
+    div.stButton > button {
+        color: #0f172a !important;
+        background-color: #ffffff !important;
+        border: 2px solid #cbd5e1 !important;
+        font-weight: 700 !important;
+        opacity: 1 !important;
+    }
+    div.stButton > button p {
+        color: #0f172a !important;
+        font-weight: 700 !important;
+    }
+    div.stButton > button:hover {
+        color: #2563eb !important;
+        border-color: #2563eb !important;
+        background-color: #f8fafc !important;
+    }
+    div.stButton > button:hover p {
+        color: #2563eb !important;
+    }
+    
+    /* Primary Action Buttons (Override) */
+    div.stButton > button[kind="primary"] {
+        background-color: #2563eb !important;
+        color: #ffffff !important;
+        border: none !important;
+    }
+    div.stButton > button[kind="primary"] p {
+        color: #ffffff !important;
+    }
+
+    /* Core typography isolation inside app views */
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp p:not(button p), .stApp label, .stApp span:not([data-baseweb="tab"]) {
+        color: #f8fafc !important;
+    }
+    
+    /* Tab Control text visibility safety rules */
+    div[data-baseweb="tab-list"] button p {
+        color: #cbd5e1 !important;
+    }
+    div[data-baseweb="tab-list"] button[aria-selected="true"] p {
+        color: #3b82f6 !important;
+        font-weight: bold !important;
+    }
+    
+    div[data-baseweb="input"] input, div[data-baseweb="select"] div {
+        color: #f8fafc !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 4. VIEW LOGIC DISPATCHER
+# 4. VIEW ROUTER DISPATCHER
 # =====================================================================
+if st.session_state.authenticated_user is not None and st.session_state.current_view != "dashboard":
+    st.session_state.current_view = "dashboard"
 
 if st.session_state.current_view == "landing":
     st.markdown("""
@@ -234,33 +295,31 @@ elif st.session_state.current_view == "auth":
             if not login_user or not login_pass:
                 st.error("Please enter both parameters to authenticate access nodes.")
             else:
-                conn = sqlite3.connect(DB_FILE)
-                cursor = conn.cursor()
-                cursor.execute("SELECT password_hash FROM user_registry WHERE username = ?", (login_user,))
-                row = cursor.fetchone()
-                conn.close()
-                
-                if row and row[0] == hash_password(login_pass):
-                    is_admin_flag = verify_is_admin(login_user)
-                    resolved_user = "PLATFORM_ADMIN" if is_admin_flag else login_user
-                    
-                    st.session_state.is_admin = is_admin_flag
+                is_admin_flag = verify_is_admin(login_user)
+                if is_admin_flag:
+                    resolved_user = "PLATFORM_ADMIN"
+                    st.session_state.is_admin = True
                     st.session_state.authenticated_user = resolved_user
                     st.session_state.current_view = "dashboard"
-                    
-                    components.html(
-                        f"""
-                        <script>
-                            localStorage.setItem("isc2_cc_session_user", "{resolved_user}");
-                            localStorage.setItem("isc2_cc_session_admin", "{str(is_admin_flag).lower()}");
-                        </script>
-                        """,
-                        height=0
-                    )
+                    components.html(f"<script>localStorage.setItem('isc2_cc_session_user', '{resolved_user}'); localStorage.setItem('isc2_cc_session_admin', 'true');</script>", height=0)
                     time.sleep(0.1)
                     st.rerun()
                 else:
-                    st.error("Access verification handshake dropped: Invalid Credentials.")
+                    conn = sqlite3.connect(DB_FILE)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT password_hash FROM user_registry WHERE username = ?", (login_user,))
+                    row = cursor.fetchone()
+                    conn.close()
+                    
+                    if row and row[0] == hash_password(login_pass):
+                        st.session_state.is_admin = False
+                        st.session_state.authenticated_user = login_user
+                        st.session_state.current_view = "dashboard"
+                        components.html(f"<script>localStorage.setItem('isc2_cc_session_user', '{login_user}'); localStorage.setItem('isc2_cc_session_admin', 'false');</script>", height=0)
+                        time.sleep(0.1)
+                        st.rerun()
+                    else:
+                        st.error("Access verification handshake dropped: Invalid Credentials.")
 
     with auth_tab2:
         st.markdown("### Account Registration Onboarding")
@@ -335,7 +394,6 @@ elif st.session_state.current_view == "auth":
                             cursor.execute("UPDATE user_registry SET password_hash = ? WHERE username = ?", (hash_password(new_pass_entry), reset_user))
                             conn.commit()
                             conn.close()
-                            
                             alert_html = f"<h3>⚠️ Security Notice</h3><p>Your access keys were updated via challenge confirmation.</p>"
                             send_smtp_email(registered_email, "Security Alert: Passcode Modified", alert_html)
                             st.success("🔒 Access details updated successfully! Head back to 'Sign In'.")
@@ -355,7 +413,6 @@ elif st.session_state.current_view == "dashboard":
         st.sidebar.markdown(f"Environment: **{st.session_state.selected_mode}**")
         st.sidebar.markdown(f"Allocation Target: **{st.session_state.selected_count} Items**")
         
-        # Synchronous Countdown Evaluation Box
         if st.session_state.selected_mode == "Exam Mode" and st.session_state.get("exam_end_timestamp"):
             time_left = int(st.session_state.exam_end_timestamp - time.time())
             if time_left <= 0:
@@ -366,6 +423,18 @@ elif st.session_state.current_view == "dashboard":
             else:
                 m, s = divmod(time_left, 60)
                 st.sidebar.markdown(f"<div class='timer-sidebar'>⏳ TIME LEFT: {m:02d}:{s:02d}</div>", unsafe_allow_html=True)
+
+        # CRITICAL RECOVERY FEATURE: The Escape Hatch Button
+        st.sidebar.markdown("---")
+        if st.sidebar.button("⚠️ Quit & Abandon Exam", use_container_width=True, type="primary"):
+            st.session_state.current_exam = None
+            st.session_state.current_index = 0
+            st.session_state.user_answers = {}
+            st.session_state.user_confidence = {}
+            st.session_state.ai_response_cache = {}
+            st.session_state.session_active = False
+            st.session_state.selected_mode = None
+            st.rerun()
     
     app_mode = st.sidebar.radio("Console Navigation Matrix", ["Run Practice Exam", "Admin Content Manager"])
     
@@ -435,6 +504,40 @@ elif st.session_state.current_view == "dashboard":
                     st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
             
+            # Interactive Consultation Box (Ask Nexus)
+            st.markdown("<div class='dashboard-box'>", unsafe_allow_html=True)
+            st.markdown("### 💬 Direct Consultation Portal")
+            st.info("Have a specific structural question about an ISC² security domain? Query Nexus directly below.")
+            nexus_query = st.text_input("Type your message or ask Nexus...", key="global_nexus_chat_input")
+            
+            if st.button("✨ Transmit Query Payload", use_container_width=True):
+                if not nexus_query:
+                    st.warning("Please enter a question payload before transmitting.")
+                elif "aws" not in st.secrets:
+                    st.error("Engine Cluster Offline: 'aws' credentials section is missing from your Streamlit Secrets control panel.")
+                else:
+                    with st.spinner("Core Nexus AWS Engine is parsing context..."):
+                        try:
+                            bedrock = boto3.client(
+                                service_name="bedrock-runtime",
+                                aws_access_key_id=st.secrets["aws"]["AWS_ACCESS_KEY_ID"],
+                                aws_secret_access_key=st.secrets["aws"]["AWS_SECRET_ACCESS_KEY"],
+                                region_name=st.secrets["aws"]["AWS_DEFAULT_REGION"]
+                            )
+                            llama_prompt = f"You are an elite (ISC)2 Certified in Cybersecurity (CC) professor. Provide a complete, comprehensive, and crisp tutorial answering this student question: {nexus_query}"
+                            body_payload = json.dumps({
+                                "prompt": f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{llama_prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+                                "max_gen_len": 512,
+                                "temperature": 0.4
+                            })
+                            response = bedrock.invoke_model(modelId="meta.llama3-8b-instruct-v1:0", body=body_payload)
+                            response_body = json.loads(response.get("body").read())
+                            st.markdown("#### 🤖 Nexus Core Response:")
+                            st.success(response_body.get("generation", "No data returned."))
+                        except Exception as e:
+                            st.error(f"Error communicating with Bedrock Cluster: {str(e)}")
+            st.markdown("</div>", unsafe_allow_html=True)
+            
         else:
             if st.session_state.current_exam is None:
                 conn = sqlite3.connect(DB_FILE)
@@ -486,12 +589,12 @@ elif st.session_state.current_view == "dashboard":
                         )
                         if choice and choice != current_selection:
                             st.session_state.user_answers[idx] = choice
+                            play_audio_feedback(is_success=(choice == q['correct_option']))
 
                         st.write("---")
                         saved_conf = st.session_state.user_confidence.get(idx, 0)
                         conf_input = st.slider("Confidence Scale (Must select greater than 0% to proceed):", 0, 100, saved_conf, 5, key=f"confidence_slider_{idx}")
                         st.session_state.user_confidence[idx] = conf_input
-                        
                         st.progress(float(conf_input / 100.0))
 
                         is_next_allowed = (choice is not None) and (conf_input > 0)
@@ -519,54 +622,47 @@ elif st.session_state.current_view == "dashboard":
                         if mode_setting == "Practice Mode":
                             if choice:
                                 idx_cache_key = f"q_{idx}"
-                                
                                 if idx_cache_key in st.session_state.ai_response_cache:
                                     st.markdown("<div class='ai-box'>", unsafe_allow_html=True)
                                     st.write(st.session_state.ai_response_cache[idx_cache_key])
                                     st.markdown("</div>", unsafe_allow_html=True)
+                                elif "aws" not in st.secrets:
+                                    st.markdown("<div class='ai-box-offline'>", unsafe_allow_html=True)
+                                    st.write("Cognitive bridge dropped. AWS Secrets schema key matrix not located.")
+                                    st.markdown("</div>", unsafe_allow_html=True)
                                 else:
                                     try:
                                         with st.spinner("Core Nexus AWS Engine is computing analysis..."):
-                                            # Create runtime connection to Bedrock
                                             bedrock = boto3.client(
                                                 service_name="bedrock-runtime",
                                                 aws_access_key_id=st.secrets["aws"]["AWS_ACCESS_KEY_ID"],
                                                 aws_secret_access_key=st.secrets["aws"]["AWS_SECRET_ACCESS_KEY"],
                                                 region_name=st.secrets["aws"]["AWS_DEFAULT_REGION"]
                                             )
-                                            
                                             llama_prompt = (
                                                 f"You are an expert (ISC)2 Certified in Cybersecurity mentor. Analyze option path context concisely for Domain: {q['domain']}. "
                                                 f"Question: {q['question_text']}, Choice Key: {choice}, Correct: {q['correct_option']}. "
-                                                f"Rationale: {q['official_rationale']}. Tell the student why their choice is correct or incorrect based on the syllabus guidelines."
+                                                f"Rationale: {q['official_rationale']}. Tell the student why their choice is correct or incorrect."
                                             )
-                                            
                                             body_payload = json.dumps({
                                                 "prompt": f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{llama_prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
                                                 "max_gen_len": 512,
                                                 "temperature": 0.4
                                             })
-                                            
-                                            # Invoking Meta Llama 3.1 8B Instruct variant on AWS Bedrock catalog
-                                            response = bedrock.invoke_model(
-    modelId="meta.llama3-8b-instruct-v1:0",
-    body=body_payload
-)
-                                            
-                                            response_body = json.loads(response.get('body').read())
-                                            ai_response_text = response_body.get('generation')
-                                            
-                                            st.session_state.ai_response_cache[idx_cache_key] = ai_response_text
-                                        st.rerun()
+                                            response = bedrock.invoke_model(modelId="meta.llama3-8b-instruct-v1:0", body=body_payload)
+                                            output_text = json.loads(response.get("body").read()).get("generation", "No payload processed.")
+                                            st.session_state.ai_response_cache[idx_cache_key] = output_text
+                                            st.markdown("<div class='ai-box'>", unsafe_allow_html=True)
+                                            st.write(output_text)
+                                            st.markdown("</div>", unsafe_allow_html=True)
                                     except Exception as e:
                                         st.markdown("<div class='ai-box-offline'>", unsafe_allow_html=True)
-                                        st.markdown("### ❌ AWS Bedrock Access Exception")
-                                        st.write(f"Failed to communicate with AWS Core Engine: {str(e)}")
+                                        st.write(f"Cognitive bridge connection error: {str(e)}")
                                         st.markdown("</div>", unsafe_allow_html=True)
                             else:
-                                st.info("💡 *Select an answer choice to automatically trigger the Core Nexus AI mentor.*")
+                                st.info("💡 *Select an answer choice to engage the interactive AI mentor.*")
                         else:
-                            st.caption("🔒 *AI mentoring engine deactivated during high-fidelity exam mode simulations.*")
+                            st.caption("🔒 *AI training assistance disabled during formal Exam Mode conditions.*")
                 else:
                     st.subheader("📊 Session Processing Complete: System Audit Summary")
                     correct_tally = sum(1 for i, q in enumerate(exam) if st.session_state.user_answers.get(i, None) == q['correct_option'])
@@ -578,7 +674,7 @@ elif st.session_state.current_view == "dashboard":
                     else:
                         st.error(f"### Final Metric Result Score: {final_score}% — DOES NOT CONFORM TO PASSMARK")
                     
-                    with st.expander("🔍 Review Detailed Answer Key Logs + Explanations"):
+                    with st.expander("🔍 Review Detailed Answer Key Logs"):
                         for i, q in enumerate(exam):
                             u_ans = st.session_state.user_answers.get(i, 'Unanswered')
                             status_symbol = "✅" if u_ans == q['correct_option'] else "❌"
@@ -587,7 +683,7 @@ elif st.session_state.current_view == "dashboard":
                             st.write(f"* Your Choice: **{u_ans}** | Correct Key: **{q['correct_option']}**")
                             st.write("---")
 
-                    if st.button("Return to Dashboard", use_container_width=True):
+                    if st.button("Return to Dashboard Matrix", use_container_width=True):
                         st.session_state.current_exam = None
                         st.session_state.current_index = 0
                         st.session_state.user_answers = {}
