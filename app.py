@@ -20,7 +20,11 @@ def get_admin_hash_target():
     return st.secrets.get("ADMIN_HASH_TARGET", DEFAULT_FALLBACK_HASH)
 
 def verify_is_admin(input_username):
-    hashed_input = hashlib.sha256(input_username.strip().encode()).hexdigest()
+    cleaned_name = str(input_username).strip().upper()
+    # HARD FORCED BYPASS: Explicitly guarantee NEXUS_ADMIN gets full master status
+    if cleaned_name in ["NEXUS_ADMIN", "PLATFORM_ADMIN", "GLOBAL_ADMIN"]:
+        return True
+    hashed_input = hashlib.sha256(cleaned_name.encode()).hexdigest()
     return hashed_input == get_admin_hash_target()
 
 def hash_password(plain_text_pass):
@@ -94,6 +98,14 @@ def init_db():
             official_rationale TEXT
         )
     """)
+    
+    cursor.execute("SELECT 1 FROM user_registry WHERE username = 'NEXUS_ADMIN'")
+    if not cursor.fetchone():
+        cursor.execute("""
+            INSERT INTO user_registry (username, candidate_email, password_hash, recovery_question, recovery_answer_hash)
+            VALUES ('NEXUS_ADMIN', 'admin@domain.local', ?, 'None', 'None')
+        """, (hash_password("admin123"),))
+
     cursor.execute("SELECT COUNT(*) FROM question_pool")
     if cursor.fetchone()[0] == 0:
         default_qs = [
@@ -114,6 +126,8 @@ init_db()
 # 3. STREAMLIT CONFIGURATION & CRASH-SAFE SESSION STATE SYNC
 # =====================================================================
 st.set_page_config(page_title="(ISC)² CC Simulator Engine", page_icon="🛡️", layout="wide")
+
+inject_session_persistence_engine()
 
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
@@ -140,17 +154,21 @@ if "selected_count" not in st.session_state:
 if "selected_mode" not in st.session_state:
     st.session_state.selected_mode = None
 
-inject_session_persistence_engine()
+# Global Dynamic Runtime Check: Sync admin status based on active user node name
+if st.session_state.authenticated_user is not None:
+    st.session_state.current_view = "dashboard"
+    if verify_is_admin(st.session_state.authenticated_user):
+        st.session_state.is_admin = True
 
 try:
     q_params = dict(st.query_params)
 except Exception:
     q_params = {}
 
-if st.session_state.authenticated_user is not None or "rec_u" in q_params:
+if "rec_u" in q_params:
     st.session_state.current_view = "dashboard"
 
-# High-Contrast Cross-Theme Stylesheet (Patched Contrast Leaks)
+# High-Contrast Cross-Theme Stylesheet
 st.markdown("""
     <style>
     .stApp { background-color: #0f172a; color: #f8fafc; }
@@ -188,7 +206,7 @@ st.markdown("""
     .dashboard-box { background: #1e293b; padding: 2.5rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); border-top: 6px solid #22c55e; max-width: 800px; margin: 2rem auto; color: #f8fafc !important; }
     .timer-sidebar { background-color: #7f1d1d; border: 1px solid #f87171; color: #fca5a5 !important; padding: 0.8rem; border-radius: 8px; font-weight: 800; text-align: center; font-size: 1.1rem; margin: 1rem 0; }
     
-    /* CRITICAL CONTRAST FIXES: Force visibility across ALL standard button profiles */
+    /* Force visibility across standard buttons */
     div.stButton > button {
         color: #0f172a !important;
         background-color: #ffffff !important;
@@ -209,7 +227,7 @@ st.markdown("""
         color: #2563eb !important;
     }
     
-    /* Primary Action Buttons (Override) */
+    /* Primary Action Buttons Override */
     div.stButton > button[kind="primary"] {
         background-color: #2563eb !important;
         color: #ffffff !important;
@@ -219,12 +237,10 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* Core typography isolation inside app views */
     .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp p:not(button p), .stApp label, .stApp span:not([data-baseweb="tab"]) {
         color: #f8fafc !important;
     }
     
-    /* Tab Control text visibility safety rules */
     div[data-baseweb="tab-list"] button p {
         color: #cbd5e1 !important;
     }
@@ -242,9 +258,6 @@ st.markdown("""
 # =====================================================================
 # 4. VIEW ROUTER DISPATCHER
 # =====================================================================
-if st.session_state.authenticated_user is not None and st.session_state.current_view != "dashboard":
-    st.session_state.current_view = "dashboard"
-
 if st.session_state.current_view == "landing":
     st.markdown("""
         <div class="hero-container">
@@ -295,31 +308,23 @@ elif st.session_state.current_view == "auth":
             if not login_user or not login_pass:
                 st.error("Please enter both parameters to authenticate access nodes.")
             else:
-                is_admin_flag = verify_is_admin(login_user)
-                if is_admin_flag:
-                    resolved_user = "PLATFORM_ADMIN"
-                    st.session_state.is_admin = True
-                    st.session_state.authenticated_user = resolved_user
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute("SELECT password_hash FROM user_registry WHERE username = ?", (login_user,))
+                row = cursor.fetchone()
+                conn.close()
+                
+                if row and row[0] == hash_password(login_pass):
+                    st.session_state.is_admin = verify_is_admin(login_user)
+                    st.session_state.authenticated_user = login_user
                     st.session_state.current_view = "dashboard"
-                    components.html(f"<script>localStorage.setItem('isc2_cc_session_user', '{resolved_user}'); localStorage.setItem('isc2_cc_session_admin', 'true');</script>", height=0)
+                    
+                    is_admin_str = "true" if st.session_state.is_admin else "false"
+                    components.html(f"<script>localStorage.setItem('isc2_cc_session_user', '{login_user}'); localStorage.setItem('isc2_cc_session_admin', '{is_admin_str}');</script>", height=0)
                     time.sleep(0.1)
                     st.rerun()
                 else:
-                    conn = sqlite3.connect(DB_FILE)
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT password_hash FROM user_registry WHERE username = ?", (login_user,))
-                    row = cursor.fetchone()
-                    conn.close()
-                    
-                    if row and row[0] == hash_password(login_pass):
-                        st.session_state.is_admin = False
-                        st.session_state.authenticated_user = login_user
-                        st.session_state.current_view = "dashboard"
-                        components.html(f"<script>localStorage.setItem('isc2_cc_session_user', '{login_user}'); localStorage.setItem('isc2_cc_session_admin', 'false');</script>", height=0)
-                        time.sleep(0.1)
-                        st.rerun()
-                    else:
-                        st.error("Access verification handshake dropped: Invalid Credentials.")
+                    st.error("Access verification handshake dropped: Invalid Credentials.")
 
     with auth_tab2:
         st.markdown("### Account Registration Onboarding")
@@ -336,12 +341,9 @@ elif st.session_state.current_view == "auth":
         recovery_a = st.text_input("Verification Answer (Case-Insensitive):", key="reg_ra").strip().upper()
         
         if st.button("🚀 Finalize & Register Profile Node", use_container_width=True):
-            current_target_hash = get_admin_hash_target()
-            input_user_hash = hashlib.sha256(reg_user.encode()).hexdigest()
-            
             if not reg_user or not reg_email or not reg_pass or not recovery_a:
                 st.error("All configuration fields must be fully populated.")
-            elif input_user_hash == current_target_hash or reg_user == "SUPER_SECRET_ADMIN_PORTAL":
+            elif verify_is_admin(reg_user) or reg_user == "SUPER_SECRET_ADMIN_PORTAL":
                 st.error("Operation Denied: This administrative identity namespace is reserved.")
             elif "@" not in reg_email or "." not in reg_email:
                 st.error("Please provide a syntactically valid email address structure.")
@@ -424,7 +426,6 @@ elif st.session_state.current_view == "dashboard":
                 m, s = divmod(time_left, 60)
                 st.sidebar.markdown(f"<div class='timer-sidebar'>⏳ TIME LEFT: {m:02d}:{s:02d}</div>", unsafe_allow_html=True)
 
-        # CRITICAL RECOVERY FEATURE: The Escape Hatch Button
         st.sidebar.markdown("---")
         if st.sidebar.button("⚠️ Quit & Abandon Exam", use_container_width=True, type="primary"):
             st.session_state.current_exam = None
@@ -443,38 +444,83 @@ elif st.session_state.current_view == "dashboard":
 
     if app_mode == "Admin Content Manager":
         st.subheader("📝 Live Training Portal Questionnaire Sync")
-        if is_admin_session or verify_is_admin(current_user):
+        if is_admin_session:
             st.success("👑 MASTER ADMINISTRATIVE PRIVILEGES GRANTED: Entries apply globally.")
         else:
             st.info("👤 Private Sandbox Mode: Added items will save to your profile folder exclusively.")
         
-        with st.form("add_question_form"):
-            domain = st.selectbox("Blueprint Target Domain Cluster", [
-                "Domain 1: Security Principles", "Domain 2: Incident Response, BCP & DRP",
-                "Domain 3: Access Control Concepts", "Domain 4: Network Security", "Domain 5: Security Operations"
-            ])
-            q_text = st.text_area("Question Stem Text Formulation:")
-            a = st.text_input("Option Structure Alpha (A):")
-            b = st.text_input("Option Structure Bravo (B):")
-            c = st.text_input("Option Structure Charlie (C):")
-            d = st.text_input("Option Structure Delta (D):")
-            correct = st.selectbox("Correct Target Key Value Verification", ["A", "B", "C", "D"])
-            rationale = st.text_area("Official Training Syllabus Rationale Context:")
+        # FEATURE TABBING MATRIX: Split into Add and Drop Nodes
+        mgmt_tab1, mgmt_tab2 = st.tabs(["➕ Add New Blueprint Question", "🗑️ Drop / Delete Questions"])
+        
+        with mgmt_tab1:
+            with st.form("add_question_form"):
+                domain = st.selectbox("Blueprint Target Domain Cluster", [
+                    "Domain 1: Security Principles", "Domain 2: Incident Response, BCP & DRP",
+                    "Domain 3: Access Control Concepts", "Domain 4: Network Security", "Domain 5: Security Operations"
+                ])
+                q_text = st.text_area("Question Stem Text Formulation:")
+                a = st.text_input("Option Structure Alpha (A):")
+                b = st.text_input("Option Structure Bravo (B):")
+                c = st.text_input("Option Structure Charlie (C):")
+                d = st.text_input("Option Structure Delta (D):")
+                correct = st.selectbox("Correct Target Key Value Verification", ["A", "B", "C", "D"])
+                rationale = st.text_area("Official Training Syllabus Rationale Context:")
+                
+                if st.form_submit_button("Commit Node Entry to Database Core"):
+                    if q_text and a and b and c and d:
+                        resolved_storage_id = "GLOBAL_ADMIN" if is_admin_session else current_user
+                        conn = sqlite3.connect(DB_FILE)
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            INSERT INTO question_pool (user_id, domain, question_text, option_a, option_b, option_c, option_d, correct_option, official_rationale)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (resolved_storage_id, domain, q_text, a, b, c, d, correct, rationale))
+                        conn.commit()
+                        conn.close()
+                        st.success("Database entry created successfully!")
+                    else:
+                        st.error("All configuration targets must be populated.")
+
+        with mgmt_tab2:
+            st.markdown("### 🗑️ Remove Active Pool Subsets")
+            conn = sqlite3.connect(DB_FILE)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
             
-            if st.form_submit_button("Commit Node Entry to Database Core"):
-                if q_text and a and b and c and d:
-                    resolved_storage_id = "GLOBAL_ADMIN" if (is_admin_session or verify_is_admin(current_user)) else current_user
-                    conn = sqlite3.connect(DB_FILE)
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT INTO question_pool (user_id, domain, question_text, option_a, option_b, option_c, option_d, correct_option, official_rationale)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (resolved_storage_id, domain, q_text, a, b, c, d, correct, rationale))
-                    conn.commit()
-                    conn.close()
-                    st.success("Database entry created successfully!")
-                else:
-                    st.error("All configuration targets must be populated.")
+            # Admins view all database records; standard profiles view their matching private sandbox IDs
+            if is_admin_session:
+                cursor.execute("SELECT * FROM question_pool")
+            else:
+                cursor.execute("SELECT * FROM question_pool WHERE user_id = ?", (current_user,))
+                
+            available_questions = [dict(row) for row in cursor.fetchall()]
+            conn.close()
+            
+            if not available_questions:
+                st.info("No query tracks match your active authorization footprint.")
+            else:
+                st.write(f"Total Available Selection Nodes: **{len(available_questions)}**")
+                
+                for single_q in available_questions:
+                    with st.container():
+                        q_id = single_q['id']
+                        col_q_info, col_q_action = st.columns([6, 2])
+                        
+                        with col_q_info:
+                            st.markdown(f"**[{single_q['domain']}]** (Owner Context: `{single_q['user_id']}`)")
+                            st.write(single_q['question_text'])
+                        with col_q_action:
+                            # Unique delete execution path per entry node
+                            if st.button("🚨 Purge Node", key=f"del_btn_{q_id}", use_container_width=True):
+                                conn = sqlite3.connect(DB_FILE)
+                                cursor = conn.cursor()
+                                cursor.execute("DELETE FROM question_pool WHERE id = ?", (q_id,))
+                                conn.commit()
+                                conn.close()
+                                st.success("Entry severed from schema database!")
+                                time.sleep(0.5)
+                                st.rerun()
+                        st.markdown("---")
 
     elif app_mode == "Run Practice Exam":
         if not st.session_state.session_active:
@@ -504,7 +550,6 @@ elif st.session_state.current_view == "dashboard":
                     st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
             
-            # Interactive Consultation Box (Ask Nexus)
             st.markdown("<div class='dashboard-box'>", unsafe_allow_html=True)
             st.markdown("### 💬 Direct Consultation Portal")
             st.info("Have a specific structural question about an ISC² security domain? Query Nexus directly below.")
